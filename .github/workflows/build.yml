@@ -44,7 +44,7 @@ jobs:
     strategy:
       matrix:
         platform: [x64]
-        configuration: [Debug, Release]
+        configuration: [Debug]
     steps:
     - uses: actions/checkout@v4
     
@@ -66,8 +66,6 @@ jobs:
     - name: Copy build artifacts
       run: |
         Copy-Item -Path "${{ matrix.platform }}\${{ matrix.configuration }}\recap_parser.exe" -Destination "bin_output\recap_parser.exe"
-        Copy-Item -Path "res\*" -Destination "bin_output\" -Recurse -ErrorAction SilentlyContinue
-        Copy-Item -Path "README.md" -Destination "bin_output\" -ErrorAction SilentlyContinue
         Copy-Item -Path "LICENSE" -Destination "bin_output\" -ErrorAction SilentlyContinue
         
     - name: Upload build artifacts
@@ -77,36 +75,44 @@ jobs:
         path: bin_output/*
 
   build-ubuntu:
-    needs: get-info
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y g++ make cmake
-        
-    - name: Setup and build with CMake
-      run: |
-        mkdir -p build
-        cd build
-        cmake -DCMAKE_CXX_STANDARD=20 -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
-        make
-        
-    - name: Prepare output directory
-      run: |
-        mkdir -p bin_output
-        cp build/recap_parser bin_output/
-        cp -r res/* bin_output/ || true
-        cp README.md bin_output/ || true
-        cp LICENSE bin_output/ || true
-        
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
-        path: bin_output/*
+      needs: get-info
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make cmake
+          
+      - name: Setup CMake
+        run: |
+          mkdir -p build
+          cd build
+          cat > CMakeLists.txt << EOF
+          cmake_minimum_required(VERSION 3.10)
+          project(recap_parser)
+          set(CMAKE_CXX_STANDARD 20)
+          add_executable(recap_parser ../main.cpp ../catalog.cpp)
+          EOF
+          
+      - name: Build
+        run: |
+          cd build
+          cmake .
+          make
+          
+      - name: Prepare output directory
+        run: |
+          mkdir -p bin_output
+          cp build/recap_parser bin_output/
+          cp -r res/* bin_output/ || true
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
+          path: bin_output/*
 
   create-release:
     needs: [get-info, build-windows, build-ubuntu]
