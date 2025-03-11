@@ -9,6 +9,7 @@ on:
 env:
   SOLUTION_FILE_PATH: recap_parser.sln
   BUILD_TYPE: Release
+  CPP_STANDARD: 20
 
 jobs:
   get-info:
@@ -21,12 +22,16 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    - name: Extract version
+    - name: Extract version from version.txt
       id: extract_version
       run: |
-        echo "version=1.0.0" >> $GITHUB_OUTPUT
-        # Alternative if you have a version extraction script:
-        # echo "version=$(./scripts/extract_version.sh)" >> $GITHUB_OUTPUT
+        if [ -f "version.txt" ]; then
+          echo "version=$(cat version.txt)" >> $GITHUB_OUTPUT
+        else
+          echo "version=1.0.0" >> $GITHUB_OUTPUT
+          echo "1.0.0" > version.txt
+          echo "Created version.txt with default version 1.0.0"
+        fi
     - name: Get date and git hash
       id: vars
       run: |
@@ -50,9 +55,9 @@ jobs:
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: nuget restore ${{env.SOLUTION_FILE_PATH}}
       
-    - name: Build
+    - name: Build with C++20 support
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: msbuild /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} ${{env.SOLUTION_FILE_PATH}}
+      run: msbuild /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:CPPLanguageStandard=cpp20 ${{env.SOLUTION_FILE_PATH}}
       
     - name: Prepare output directory
       run: |
@@ -61,7 +66,9 @@ jobs:
     - name: Copy build artifacts
       run: |
         Copy-Item -Path "${{ matrix.platform }}\${{ matrix.configuration }}\recap_parser.exe" -Destination "bin_output\recap_parser.exe"
-        Copy-Item -Path "res\*" -Destination "bin_output\" -Include "*.ico", "*.png" -ErrorAction SilentlyContinue
+        Copy-Item -Path "res\*" -Destination "bin_output\" -Recurse -ErrorAction SilentlyContinue
+        Copy-Item -Path "README.md" -Destination "bin_output\" -ErrorAction SilentlyContinue
+        Copy-Item -Path "LICENSE" -Destination "bin_output\" -ErrorAction SilentlyContinue
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -80,21 +87,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y g++ make cmake
         
-    - name: Setup CMake
+    - name: Setup and build with CMake
       run: |
         mkdir -p build
         cd build
-        cat > CMakeLists.txt << EOF
-        cmake_minimum_required(VERSION 3.10)
-        project(recap_parser)
-        set(CMAKE_CXX_STANDARD 20)
-        add_executable(recap_parser ../main.cpp ../catalog.cpp)
-        EOF
-        
-    - name: Build
-      run: |
-        cd build
-        cmake .
+        cmake -DCMAKE_CXX_STANDARD=20 -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
         make
         
     - name: Prepare output directory
@@ -102,6 +99,8 @@ jobs:
         mkdir -p bin_output
         cp build/recap_parser bin_output/
         cp -r res/* bin_output/ || true
+        cp README.md bin_output/ || true
+        cp LICENSE bin_output/ || true
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -130,12 +129,11 @@ jobs:
         
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
+        token: ${{ secrets.GITHUB_TOKEN }}
         tag_name: v${{ needs.get-info.outputs.version }}
-        release_name: Recap Parser v${{ needs.get-info.outputs.version }}
+        name: Recap Parser v${{ needs.get-info.outputs.version }}
         draft: false
         prerelease: false
         body: |
@@ -143,15 +141,4 @@ jobs:
           
           Date: ${{ needs.get-info.outputs.date }}
           Commit: ${{ needs.get-info.outputs.shorthash }}
-          
-    - name: Upload Release Assets
-      run: |
-        for file in artifacts/*.zip; do
-          filename=$(basename "$file")
-          echo "Uploading $filename..."
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/zip" \
-            --data-binary @"$file" \
-            "${{ steps.create_release.outputs.upload_url }}?name=$filename"
-        done
+        files: artifacts/*.zip
