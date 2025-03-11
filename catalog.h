@@ -63,27 +63,20 @@ public:
         std::string name;
         std::shared_ptr<Type> type;
         size_t offset;
-        bool isRelativeOffset;
-
-        Field(std::string name, std::shared_ptr<Type> type, size_t offset, bool isRelativeOffset = false)
-            : name(std::move(name)), type(std::move(type)), offset(offset), isRelativeOffset(isRelativeOffset) {
-        }
+        bool useKeyData;
     };
 
     Type(std::string name, uint32_t size);
-
     const std::string& getName() const { return mName; }
     uint32_t getSize() const { return mSize; }
     const std::vector<Field>& getFields() const { return mFields; }
 
-    void addField(const std::string& name, std::shared_ptr<Type> type, size_t offset, bool isRelativeOffset = false) {
-        mFields.emplace_back(name, type, offset, isRelativeOffset);
-    }
+    void addField(const std::string& name, std::shared_ptr<Type> type, size_t offset = 0, bool useKeyData = false);
 
 private:
     std::string mName;
     uint32_t mSize;
-    std::vector<Field> mFields; // Mova a declaração para após a estrutura
+    std::vector<Field> mFields;
 };
 
 class TypeDatabase {

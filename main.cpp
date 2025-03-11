@@ -66,8 +66,7 @@ public:
     }
 
     void writeAttribute(const std::string& name, const std::string& value) {
-        // Assuming the last line written was a start tag that's not closed yet
-        mOut.seekp(-2, std::ios_base::cur);  // Move back over the ">\n"
+        mOut.seekp(-2, std::ios_base::cur);
         mOut << " " << name << "=\"" << escape(value) << "\">\n";
     }
 
@@ -168,10 +167,18 @@ private:
 
 class BinaryParser {
 public:
-    BinaryParser(std::vector<char> data)  // Recebe por valor
+    BinaryParser(std::vector<char> data)
         : mData(std::move(data)), mPosition(0), mKeyDataOffset(0) {
     }
+    char read() {
+        if (mPosition + sizeof(char) > mData.size()) {
+            throw std::runtime_error("End of buffer reached");
+        }
 
+        char value = mData[mPosition];
+        mPosition += sizeof(char);
+        return value;
+    }
     template<typename T>
     T read() {
         if (mPosition + sizeof(T) > mData.size()) {
@@ -198,7 +205,7 @@ public:
     }
 
     void seek(size_t position) {
-        if (position >= mData.size()) { // Alterado para >=
+        if (position >= mData.size()) {
             throw std::runtime_error("Seek beyond end of buffer");
         }
         mPosition = position;
@@ -236,6 +243,7 @@ public:
         return result;
     }
 
+
     uint32_t readKeyValue(uint32_t keyId = 1) {
         if (keyId == 0) {
             return 0;
@@ -262,14 +270,14 @@ public:
         TypeDatabase::instance().initialize();
 
         // Register file type parsers
-        registerParser("phase", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "Phase"));
-        registerParser("characterAnimation", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "CharacterAnimation"));
-        registerParser("aiDefinition", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "AiDefinition"));
+        registerParser("Phase", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "Phase"));
+        registerParser("CharacterAnimation", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "CharacterAnimation"));
+        registerParser("AiDefinition", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "AiDefinition"));
         registerParser("ClassAttributes", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "ClassAttributes"));
         registerParser("npcAffix", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "NpcAffix"));
         registerParser("PlayerClass", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "PlayerClass"));
-        registerParser("nonPlayerClass", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "NonPlayerClass"));
-        registerParser("noun", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "Noun"));
+        registerParser("NonPlayerClass", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "NonPlayerClass"));
+        registerParser("Noun", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "Noun"));
         registerParser("markerSet", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "MarkerSet"));
         registerParser("catalog", std::bind(&DarksporeParser::parseGeneric, this, std::placeholders::_1, std::placeholders::_2, "Catalog"));
     }
@@ -348,39 +356,43 @@ private:
         mParsers[filetype] = std::move(parser);
     }
 
-    // Dynamic text output for structures
     void outputStructText(
         const std::string& structName,
         const std::string& data,
         std::ostream& out
     ) {
-        TextWriter writer(out); // Variável local
-        parseStructToText(structName, data, writer); // Passa a referência
+        TextWriter writer(out);
+        parseStructToText(structName, data, writer);
     }
 
     void parseType(const std::shared_ptr<Type>& type, BinaryParser& parser, const std::string& fieldName, int indentLevel = 0) {
         std::string indent(indentLevel * 4, ' ');
 
-        // Se o tipo possui campos, trata-o como uma struct
+        // If the type has fields, treat it as a struct
         if (!type->getFields().empty()) {
             std::cout << indent << "parse_struct(" << fieldName << ")\n";
 
-            // Armazena a posição atual para restaurar depois
-            size_t originalPosition = parser.position();
-
-            // Itera os campos na ordem de adição (sem reordenar)
+            // Iterate through the fields in the order they were added
             for (const auto& field : type->getFields()) {
-                parser.seek(field.offset);
-                // Se o campo for um struct (aninhado)
+                // Calculate the position to read from based on whether the field uses key data
+                size_t readPosition;
+                if (field.useKeyData) {
+                    readPosition = parser.mKeyDataOffset + field.offset;
+                }
+                else {
+                    readPosition = field.offset;
+                }
+
+                parser.seek(readPosition);
+
+                // If the field is a nested struct
                 if (!field.type->getFields().empty()) {
-                    // Linha em branco antes do bloco aninhado
                     std::cout << "\n";
                     parseType(field.type, parser, field.name, indentLevel + 1);
-                    // Linha em branco após o bloco aninhado
                     std::cout << "\n";
                 }
                 else {
-                    // Processa campos primitivos
+                    // Process primitive fields
                     if (field.type->getName() == "enum") {
                         uint32_t value = parser.read<uint32_t>();
                         std::cout << indent << "    parse_member_enum(" << field.name << ", " << value << ")\n";
@@ -397,9 +409,23 @@ private:
                         float value = parser.read<float>();
                         std::cout << indent << "    parse_member_float(" << field.name << ", " << value << ")\n";
                     }
+                    else if (field.type->getName() == "padding") {
+                        if (field.useKeyData) {
+                            parser.mKeyDataOffset += field.offset;
+                        }
+                        //std::cout << indent << "    parse_member_padding(" << field.name << ", " << field.offset << " bytes)\n";
+                    }
                     else if (field.type->getName() == "uint64_t") {
                         uint64_t value = parser.read<uint64_t>();
                         std::cout << indent << "    parse_member_u64(" << field.name << ", " << value << ")\n";
+                    }
+                    else if (field.type->getName() == "uint32_t") {
+                        uint32_t value = parser.read<uint32_t>();
+                        std::cout << indent << "    parse_member_u32(" << field.name << ", " << value << ")\n";
+                    }
+                    else if (field.type->getName() == "int") {
+                        int32_t value = parser.read<int32_t>();
+                        std::cout << indent << "    parse_member_int(" << field.name << ", " << value << ")\n";
                     }
                     else if (field.type->getName() == "key") {
                         uint32_t keyId = parser.read<uint32_t>();
@@ -411,15 +437,30 @@ private:
                             //std::cout << indent << "    parse_member_key(" << field.name << ", " << keyId << ", NULL)\n";
                         }
                     }
+                    else if (field.type->getName() == "char") {
+                        std::string string = parser.readString();
+                        std::cout << indent << "    parse_member_char(" << field.name << ", " << string << ")\n";
+                    }
                     else if (field.type->getName() == "char*") {
                         uint32_t stringId = parser.read<uint32_t>();
-                        std::string stringValue = parser.readKeyString();
-                        std::cout << indent << "    parse_member_char*(" << field.name << ", " << stringId << ", " << stringValue << ")\n";
+                        if (stringId != 0) {
+                            std::string stringValue = parser.readKeyString();
+                            std::cout << indent << "    parse_member_char*(" << field.name << ", " << stringId << ", " << stringValue << ")\n";
+                        }
+                    }
+                    else if (field.type->getName() == "cLocalizedAssetString") {
+                        uint32_t assetString = parser.read<uint32_t>();
+                        if (assetString != 0) {
+                            std::string assetValue = parser.readKeyString();
+                            std::cout << indent << "    parse_member_cLocalizedAssetString(" << field.name << ", " << assetString << ", " << assetValue << ")\n";
+                        }
                     }
                     else if (field.type->getName() == "asset") {
                         uint32_t assetId = parser.read<uint32_t>();
-                        std::string assetValue = parser.readKeyString();
-                        std::cout << indent << "    parse_member_asset(" << field.name << ", " << assetId << ", " << assetValue << ")\n";
+                        if (assetId != 0) {
+                            std::string assetValue = parser.readKeyString();
+                            std::cout << indent << "    parse_member_asset(" << field.name << ", " << assetId << ", " << assetValue << ")\n";
+                        }
                     }
                     else if (field.type->getName() == "nullable") {
                         uint32_t value = parser.read<uint32_t>();
@@ -439,14 +480,41 @@ private:
                             << ", y: " << value.y
                             << ", z: " << value.z << ")\n";
                     }
-                    else {
+                    else if (field.type->getName() != "padding") {
                         std::cout << indent << "    parse_member_unk(" << field.name << ")\n";
+                    }
+                    if (field.useKeyData) {
+                        // Update keyDataOffset based on the field type
+                        if (field.type->getName() == "bool") {
+                            parser.mKeyDataOffset += sizeof(uint8_t);
+                        }
+                        else if (field.type->getName() == "float") {
+                            parser.mKeyDataOffset += sizeof(float);
+                        }
+                        else if (field.type->getName() == "uint64_t") {
+                            parser.mKeyDataOffset += sizeof(uint64_t);
+                        }
+                        else if (field.type->getName() == "vec3") {
+                            parser.mKeyDataOffset += sizeof(vec3);
+                        }
+                        else if (field.type->getName() == "enum" ||
+                            field.type->getName() == "key" ||
+                            field.type->getName() == "char*" ||
+                            field.type->getName() == "asset" ||
+                            field.type->getName() == "nullable" ||
+                            field.type->getName() == "array") {
+                            parser.mKeyDataOffset += sizeof(uint32_t);
+                        }
+                        // For complex types, we need to calculate the size differently
+                        else if (!field.type->getFields().empty()) {
+                            parser.mKeyDataOffset += field.type->getSize();
+                        }
                     }
                 }
             }
         }
         else {
-            // Caso seja um tipo primitivo
+            // If it is a primitive type
             if (type->getName() == "enum") {
                 uint32_t value = parser.read<uint32_t>();
                 std::cout << indent << "parse_member_enum(" << fieldName << ", " << value << ")\n";
@@ -536,37 +604,36 @@ private:
             parser.setKeyDataOffset(0x100);
         }
         else if (typeName == "NonPlayerClass") {
-            parser.setKeyDataOffset(0x120);  // Exemplo para NonPlayerClass
+            parser.setKeyDataOffset(0x7C);
         }
         else if (typeName == "Noun") {
             parser.setKeyDataOffset(0x1E0);
         }
         else if (typeName == "CharacterAnimation") {
-            parser.setKeyDataOffset(0x80);   // Exemplo para CharacterAnimation
+            parser.setKeyDataOffset(0x294);
         }
         else if (typeName == "AiDefinition") {
-            parser.setKeyDataOffset(0x90);   // Exemplo para AiDefinition
+            parser.setKeyDataOffset(0x90);   // wrong
         }
         else if (typeName == "ClassAttributes") {
-            parser.setKeyDataOffset(0xA0);   // Exemplo para ClassAttributes
+            parser.setKeyDataOffset(0x0);
         }
         else if (typeName == "NpcAffix") {
-            parser.setKeyDataOffset(0xB0);   // Exemplo para NpcAffix
+            parser.setKeyDataOffset(0xB0);   // wrong
         }
         else if (typeName == "MarkerSet") {
-            parser.setKeyDataOffset(0xC0);   // Exemplo para MarkerSet
+            parser.setKeyDataOffset(0xC0);   // wrong
         }
         else if (typeName == "Phase") {
-            parser.setKeyDataOffset(0xD0);   // Exemplo para Phase
+            parser.setKeyDataOffset(0x78); // basic (wrong)
         }
         else if (typeName == "Catalog") {
-            parser.setKeyDataOffset(0xE0);   // Exemplo para Catalog
+            parser.setKeyDataOffset(0xE0);   // wrong
         }
         else {
-            parser.setKeyDataOffset(0x100);  // Valor padrão caso não seja um tipo conhecido
+            parser.setKeyDataOffset(0x100);  // default for other files
         }
 
-        // Agora podemos realizar o parsing com o offset de chaves configurado
         auto structType = TypeDatabase::instance().getType(typeName);
         if (!structType) {
             std::cerr << "Unknown structure type: " << typeName << std::endl;
@@ -574,72 +641,9 @@ private:
         }
 
         TextWriter writer(out);
-        writer.startObject(typeName);
+        //writer.startObject(typeName);
         parseType(structType, parser, typeName);
         writer.endObject();
-
-        return true;
-    }
-
-    // File type specific parsers
-    bool parseCatalog(const std::string& filename, std::ostream& out) {
-        Catalog catalog;
-        if (!catalog.read(filename)) {
-            std::cerr << "Failed to read catalog: " << filename << std::endl;
-            return false;
-        }
-
-        if (mExportXml) {
-            XmlWriter writer(out);
-            writer.startElement("catalog");
-
-            for (const auto& item : catalog.getItems()) {
-                writer.startElement("item");
-                writer.writeElement("assetNameWType", item.assetNameWType);
-                writer.writeElement("compileTime", item.compileTime);
-                writer.writeElement("dataCrc", item.dataCrc);
-                writer.writeElement("typeCrc", item.typeCrc);
-                writer.writeElement("sourceFileNameWType", item.sourceFileNameWType);
-                writer.writeElement("version", item.version);
-
-                writer.startElement("tags");
-                for (const auto& tag : item.tags) {
-                    writer.writeElement("tag", tag);
-                }
-                writer.endElement(); // tags
-
-                writer.endElement(); // item
-            }
-
-            writer.endElement(); // catalog
-        }
-        else {
-            TextWriter writer(out);
-            writer.startObject("catalog");
-            writer.writeProperty("itemCount", static_cast<int>(catalog.getItems().size()));
-
-            int itemIndex = 0;
-            for (const auto& item : catalog.getItems()) {
-                writer.startObject("item_" + std::to_string(itemIndex++));
-                writer.writeProperty("assetNameWType", item.assetNameWType);
-                writer.writeProperty("compileTime", item.compileTime);
-                writer.writeProperty("dataCrc", item.dataCrc);
-                writer.writeProperty("typeCrc", item.typeCrc);
-                writer.writeProperty("sourceFileNameWType", item.sourceFileNameWType);
-                writer.writeProperty("version", item.version);
-
-                writer.startObject("tags");
-                int tagIndex = 0;
-                for (const auto& tag : item.tags) {
-                    writer.writeProperty("tag_" + std::to_string(tagIndex++), tag);
-                }
-                writer.endObject(); // tags
-
-                writer.endObject(); // item
-            }
-
-            writer.endObject(); // catalog
-        }
 
         return true;
     }
