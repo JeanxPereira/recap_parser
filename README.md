@@ -5,8 +5,20 @@
 <h1 align="center">Darkspore Parser</h1>
 <p align="center">A simple tool for parsing Darkspore binary files.</p>
 
-## Features  
-- Parses various Darkspore file types including `.Phase`, `.CharacterAnimation`, `.AiDefinition`, `.ClassAttributes`, `.NpcAffix`, `.PlayerClass`, `.NonPlayerClass`, `.Noun`, `.MarkerSet`, and `catalog`.  
+## Filetypes  
+- `.AiDefinition`
+- ~~`Catalog`~~
+- `.CharacterAnimation`
+- `.ClassAttributes`
+- ~~`.MarkerSet`~~
+- `.Noun`
+- ~~`.NpcAffix`~~
+- `.NonPlayerClass`
+- ~~`.Phase`~~
+- `.PlayerClass`
+- 
+## Features
+- Parses various Darkspore file types including
 - Exports parsed data in plain text or XML format. (WIP)
 - Supports recursive parsing of directories containing Darkspore files.
 
