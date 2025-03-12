@@ -365,16 +365,30 @@ private:
         parseStructToText(structName, data, writer);
     }
 
-    void parseType(const std::shared_ptr<Type>& type, BinaryParser& parser, const std::string& fieldName, int indentLevel = 0) {
-        std::string indent(indentLevel * 4, ' ');
+    int mCurrentIndentLevel = 0;
 
-        // If the type has fields, treat it as a struct
+    std::string getCurrentIndent() const {
+        return std::string(mCurrentIndentLevel * 4, ' ');
+    }
+
+    template<typename T>
+    void printField(const std::string& fieldType, const std::string& fieldName, T value) {
+        std::cout << getCurrentIndent() << "parse_member_" << fieldType << "(" << fieldName << ", " << value << ")\n";
+    }
+
+    void printField(const std::string& fieldType, const std::string& fieldName, const std::string& value) {
+        std::cout << getCurrentIndent() << "parse_member_" << fieldType << "(" << fieldName << ", " << value << ")\n";
+    }
+
+    void parseType(const std::shared_ptr<Type>& type, BinaryParser& parser, const std::string& fieldName, int indentLevel = 0) {
+        mCurrentIndentLevel = indentLevel;
+        std::string indent = getCurrentIndent();
+
         if (!type->getFields().empty()) {
             std::cout << indent << "parse_struct(" << fieldName << ")\n";
+            mCurrentIndentLevel++;
 
-            // Iterate through the fields in the order they were added
             for (const auto& field : type->getFields()) {
-                // Calculate the position to read from based on whether the field uses key data
                 size_t readPosition;
                 if (field.useKeyData) {
                     readPosition = parser.mKeyDataOffset + field.offset;
@@ -385,106 +399,100 @@ private:
 
                 parser.seek(readPosition);
 
-                // If the field is a nested struct
                 if (!field.type->getFields().empty()) {
                     std::cout << "\n";
-                    parseType(field.type, parser, field.name, indentLevel + 1);
+                    parseType(field.type, parser, field.name, mCurrentIndentLevel);
                     std::cout << "\n";
                 }
                 else {
-                    // Process primitive fields
                     if (field.type->getName() == "enum") {
                         uint32_t value = parser.read<uint32_t>();
-                        std::cout << indent << "    parse_member_enum(" << field.name << ", " << value << ")\n";
+                        printField("enum", field.name, value);
                     }
                     else if (field.type->getName() == "array") {
                         uint32_t value = parser.read<uint32_t>();
-                        std::cout << indent << "    parse_member_array(" << field.name << ", " << value << ")\n";
+                        printField("array", field.name, value);
                     }
                     else if (field.type->getName() == "bool") {
                         bool value = parser.read<uint8_t>() != 0;
-                        std::cout << indent << "    parse_member_bool(" << field.name << ", " << (value ? "true" : "false") << ")\n";
+                        printField("bool", field.name, value ? "true" : "false");
                     }
                     else if (field.type->getName() == "float") {
                         float value = parser.read<float>();
-                        std::cout << indent << "    parse_member_float(" << field.name << ", " << value << ")\n";
+                        printField("float", field.name, value);
                     }
                     else if (field.type->getName() == "padding") {
                         if (field.useKeyData) {
                             parser.mKeyDataOffset += field.offset;
                         }
-                        //std::cout << indent << "    parse_member_padding(" << field.name << ", " << field.offset << " bytes)\n";
+                        //printField("padding", field.name, std::to_string(field.offset) + " bytes");
                     }
                     else if (field.type->getName() == "uint64_t") {
                         uint64_t value = parser.read<uint64_t>();
-                        std::cout << indent << "    parse_member_u64(" << field.name << ", " << value << ")\n";
+                        printField("u64", field.name, value);
                     }
                     else if (field.type->getName() == "uint32_t") {
                         uint32_t value = parser.read<uint32_t>();
-                        std::cout << indent << "    parse_member_u32(" << field.name << ", " << value << ")\n";
+                        printField("u32", field.name, value);
                     }
                     else if (field.type->getName() == "int") {
                         int32_t value = parser.read<int32_t>();
-                        std::cout << indent << "    parse_member_int(" << field.name << ", " << value << ")\n";
+                        printField("int", field.name, value);
                     }
                     else if (field.type->getName() == "key") {
                         uint32_t keyId = parser.read<uint32_t>();
                         if (keyId != 0) {
                             std::string keyValue = parser.readKeyString();
-                            std::cout << indent << "    parse_member_key(" << field.name << ", " << keyId << ", " << keyValue << ")\n";
+                            std::cout << getCurrentIndent() << "parse_member_key(" << field.name << ", " << keyId << ", " << keyValue << ")\n";
                         }
-                        else {
-                            //std::cout << indent << "    parse_member_key(" << field.name << ", " << keyId << ", NULL)\n";
-                        }
+                        //else {
+                        //    std::cout << getCurrentIndent() << "parse_member_key(" << field.name << ", " << keyId << ", NULL)\n";
+                        //}
                     }
                     else if (field.type->getName() == "char") {
                         std::string string = parser.readString();
-                        std::cout << indent << "    parse_member_char(" << field.name << ", " << string << ")\n";
+                        printField("char", field.name, string);
                     }
                     else if (field.type->getName() == "char*") {
                         uint32_t stringId = parser.read<uint32_t>();
                         if (stringId != 0) {
                             std::string stringValue = parser.readKeyString();
-                            std::cout << indent << "    parse_member_char*(" << field.name << ", " << stringId << ", " << stringValue << ")\n";
+                            std::cout << getCurrentIndent() << "parse_member_char*(" << field.name << ", " << stringId << ", " << stringValue << ")\n";
                         }
                     }
                     else if (field.type->getName() == "cLocalizedAssetString") {
                         uint32_t assetString = parser.read<uint32_t>();
                         if (assetString != 0) {
                             std::string assetValue = parser.readKeyString();
-                            std::cout << indent << "    parse_member_cLocalizedAssetString(" << field.name << ", " << assetString << ", " << assetValue << ")\n";
+                            std::cout << getCurrentIndent() << "parse_member_cLocalizedAssetString(" << field.name << ", " << assetString << ", " << assetValue << ")\n";
                         }
                     }
                     else if (field.type->getName() == "asset") {
                         uint32_t assetId = parser.read<uint32_t>();
                         if (assetId != 0) {
                             std::string assetValue = parser.readKeyString();
-                            std::cout << indent << "    parse_member_asset(" << field.name << ", " << assetId << ", " << assetValue << ")\n";
+                            std::cout << getCurrentIndent() << "parse_member_asset(" << field.name << ", " << assetId << ", " << assetValue << ")\n";
                         }
                     }
                     else if (field.type->getName() == "nullable") {
                         uint32_t value = parser.read<uint32_t>();
-                        std::cout << indent << "    parse_member_nullable(" << field.name << ", " << value << ")\n";
-                    }
-                    else if (field.type->getName() == "asset") {
-                        uint32_t value = parser.read<uint32_t>();
-                        std::cout << indent << "    parse_member_asset(" << field.name << ", " << value << ")\n";
+                        printField("nullable", field.name, value);
                     }
                     else if (field.type->getName() == "vec3") {
                         vec3 value;
                         value.x = parser.read<float>();
                         value.y = parser.read<float>();
                         value.z = parser.read<float>();
-                        std::cout << indent << "    parse_member_vec3(" << field.name
+                        std::cout << getCurrentIndent() << "parse_member_vec3(" << field.name
                             << ", x: " << value.x
                             << ", y: " << value.y
                             << ", z: " << value.z << ")\n";
                     }
                     else if (field.type->getName() != "padding") {
-                        std::cout << indent << "    parse_member_unk(" << field.name << ")\n";
+                        printField("unk", field.name, "");
                     }
+
                     if (field.useKeyData) {
-                        // Update keyDataOffset based on the field type
                         if (field.type->getName() == "bool") {
                             parser.mKeyDataOffset += sizeof(uint8_t);
                         }
@@ -512,57 +520,58 @@ private:
                     }
                 }
             }
+            mCurrentIndentLevel--;
         }
         else {
-            // If it is a primitive type
+            //  If is primitve type:
             if (type->getName() == "enum") {
                 uint32_t value = parser.read<uint32_t>();
-                std::cout << indent << "parse_member_enum(" << fieldName << ", " << value << ")\n";
+                printField("enum", fieldName, value);
             }
             else if (type->getName() == "bool") {
                 bool value = parser.read<uint8_t>() != 0;
-                std::cout << indent << "parse_member_bool(" << fieldName << ", " << (value ? "true" : "false") << ")\n";
+                printField("bool", fieldName, value ? "true" : "false");
             }
             else if (type->getName() == "float") {
                 float value = parser.read<float>();
-                std::cout << indent << "parse_member_float(" << fieldName << ", " << value << ")\n";
+                printField("float", fieldName, value);
             }
             else if (type->getName() == "key") {
                 uint32_t keyId = parser.read<uint32_t>();
                 if (keyId != 0) {
                     std::string keyValue = parser.readKeyString(keyId);
-                    std::cout << indent << "parse_member_key(" << fieldName << ", " << keyId << ", " << keyValue << ")\n";
+                    std::cout << getCurrentIndent() << "parse_member_key(" << fieldName << ", " << keyId << ", " << keyValue << ")\n";
                 }
-                else {
-                    //std::cout << indent << "parse_member_key(" << fieldName << ", " << keyId << ", NULL)\n";
-                }
+                //else {
+                //    std::cout << getCurrentIndent() << "parse_member_key(" << fieldName << ", " << keyId << ", NULL)\n";
+                //}
             }
             else if (type->getName() == "char*") {
                 uint32_t stringId = parser.read<uint32_t>();
                 if (stringId != 0) {
                     std::string stringValue = parser.readKeyString(stringId);
-                    std::cout << indent << "parse_member_char*(" << fieldName << ", " << stringId << ", " << stringValue << ")\n";
+                    std::cout << getCurrentIndent() << "parse_member_char*(" << fieldName << ", " << stringId << ", " << stringValue << ")\n";
                 }
-                else {
-                    //std::cout << indent << "parse_member_char*(" << fieldName << ", " << stringId << ", NULL)\n";
-                }
+                //else {
+                //    std::cout << getCurrentIndent() << "parse_member_char*(" << fieldName << ", " << stringId << ", NULL)\n";
+                //}
             }
             else if (type->getName() == "asset") {
                 uint32_t assetId = parser.read<uint32_t>();
                 if (assetId != 0) {
                     std::string assetValue = parser.readKeyString(assetId);
-                    std::cout << indent << "parse_member_asset(" << fieldName << ", " << assetId << ", " << assetValue << ")\n";
+                    std::cout << getCurrentIndent() << "parse_member_asset(" << fieldName << ", " << assetId << ", " << assetValue << ")\n";
                 }
-                else {
-                    //std::cout << indent << "parse_member_asset(" << fieldName << ", " << assetId << ", NULL)\n";
-                }
+                //else {
+                //    std::cout << getCurrentIndent() << "parse_member_asset(" << fieldName << ", " << assetId << ", NULL)\n";
+                //}
             }
             else if (type->getName() == "vec3") {
                 vec3 value;
                 value.x = parser.read<float>();
                 value.y = parser.read<float>();
                 value.z = parser.read<float>();
-                std::cout << indent << "parse_member_vec3(" << fieldName << ", x: "
+                std::cout << getCurrentIndent() << "parse_member_vec3(" << fieldName << ", x: "
                     << value.x << ", y: " << value.y << ", z: " << value.z << ")\n";
             }
         }
@@ -576,13 +585,11 @@ private:
         }
 
         BinaryParser parser(std::vector<char>(data.begin(), data.end()));
-        // Não ordena os campos para manter a ordem de declaração
         parseType(structType, parser, structName, 0);
 
         writer.endObject();
     }
 
-    // Generic parser for most file types
     bool parseGeneric(const std::string& filename, std::ostream& out, const std::string& typeName) {
         // Read file content
         std::ifstream file(filename, std::ios::binary);
