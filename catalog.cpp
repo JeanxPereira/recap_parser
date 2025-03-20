@@ -1,476 +1,339 @@
-#define _CRT_SECURE_NO_WARNINGS
 #include "catalog.h"
-#include <stdio.h>
-#include <cstring>
-#include <iostream>
-#include <sstream>
-#include <filesystem>
 
-TypeDatabase TypeDatabase::sInstance;
+namespace parser {
 
-FileStream::FileStream(const std::string& filename, const char* mode)
-    : mFile(std::fopen(filename.c_str(), mode)) {
-}
-
-FileStream::~FileStream() {
-    if (mFile) {
-        std::fclose(mFile);
-    }
-}
-
-FileStream::operator bool() const {
-    return mFile != nullptr;
-}
-
-bool FileStream::eof() const {
-    return std::feof(mFile) != 0;
-}
-
-void FileStream::skip(size_t bytes) {
-    std::fseek(mFile, static_cast<long>(bytes), SEEK_CUR);
-}
-
-void FileStream::seek(size_t position, int origin) {
-    std::fseek(mFile, static_cast<long>(position), origin);
-}
-
-template<>
-uint32_t FileStream::read() {
-    uint32_t value;
-    std::fread(&value, sizeof(value), 1, mFile);
-    return value;
-}
-
-template<>
-int32_t FileStream::read() {
-    int32_t value;
-    std::fread(&value, sizeof(value), 1, mFile);
-    return value;
-}
-
-template<>
-int64_t FileStream::read() {
-    int64_t value;
-    std::fread(&value, sizeof(value), 1, mFile);
-    return value;
-}
-
-template<>
-float FileStream::read() {
-    float value;
-    std::fread(&value, sizeof(value), 1, mFile);
-    return value;
-}
-
-template<>
-double FileStream::read() {
-    double value;
-    std::fread(&value, sizeof(value), 1, mFile);
-    return value;
-}
-
-std::string FileStream::readString() {
-    char buffer[1024];
-    size_t i = 0;
-
-    do {
-        buffer[i] = std::fgetc(mFile);
-    } while (buffer[i++] != '\0' && i < sizeof(buffer) - 1);
-
-    buffer[i] = '\0';
-    return std::string(buffer);
-}
-
-void CatalogItem::read(FileStream& stream) {
-    if (stream.eof()) {
-        return;
+    void StructDefinition::addField(const std::string& name,
+        std::shared_ptr<DataType> type,
+        std::shared_ptr<DataType> containedType,
+        size_t offset,
+        bool usesSecondaryPointer) {
+        if (type->getName() == "nullable") {
+            auto nullableType = parser::Catalog::getInstance().addNullableType(containedType);
+            fields.push_back(std::make_shared<Field>(name, nullableType, offset, usesSecondaryPointer));
+        } else if (type->getName() == "dNullable") {
+            auto dnullableType = parser::Catalog::getInstance().addDirectNullableType(containedType);
+            fields.push_back(std::make_shared<Field>(name, dnullableType, offset, usesSecondaryPointer));
+        }
+        else {
+            fields.push_back(std::make_shared<Field>(name, type, offset, usesSecondaryPointer));
+        }
     }
 
-    stream.skip(8); // Skip magic number and header data
-
-    uint32_t assetNameOffset = stream.read<uint32_t>();
-    compileTime = stream.read<int64_t>();
-    dataCrc = stream.read<uint32_t>();
-    typeCrc = stream.read<uint32_t>();
-    uint32_t sourceFileOffset = stream.read<uint32_t>();
-    version = stream.read<int32_t>();
-    uint32_t tagsOffset = stream.read<uint32_t>();
-    uint32_t tagsCount = stream.read<uint32_t>();
-
-    // We'll need to read the strings later, after we've processed all the fixed-size data
-}
-
-void CatalogItem::write(FileStream& stream) const {
-    // Implement writing functionality
-}
-
-bool Catalog::read(const std::string& filename) {
-    FileStream stream(filename, "rb");
-    if (!stream) {
-        return false;
+    void StructDefinition::addStructField(const std::string& name, const std::string& structName, size_t offset, bool usesSecondaryPointer) {
+        auto& catalog = Catalog::getInstance();
+        auto structType = std::dynamic_pointer_cast<StructType>(catalog.getType("struct:" + structName));
+        if (!structType) {
+            structType = std::dynamic_pointer_cast<StructType>(catalog.addStructType(structName));
+        }
+        addField(name, structType, offset, usesSecondaryPointer);
     }
 
-    uint32_t magicNumber = stream.read<uint32_t>();
-    uint32_t items = stream.read<uint32_t>();
+    void initializeCatalog() {
+        auto& catalog = Catalog::getInstance();
 
-    mItems.reserve(items);
+        // Register basic types
+        auto bool_type = catalog.addType("bool", sizeof(bool));
+        auto float_type = catalog.addType("float", sizeof(float));
+        auto vec3_type = catalog.addType("vec3", sizeof(float) * 3);
+        auto vec2_type = catalog.addType("vec2", sizeof(float) * 2);
+        auto char_type = catalog.addType("char", sizeof(char));
+        auto string_type = catalog.addType("char*", sizeof(char*));
+        auto int_type = catalog.addType("int", sizeof(int));
+        auto uint32_type = catalog.addType("uint32_t", sizeof(uint32_t));
+        auto uint64_type = catalog.addType("uint64_t", sizeof(uint64_t));
+        auto int64_type = catalog.addType("int64_t", sizeof(int64_t));
 
-    stream.seek(0, SEEK_SET);
-    for (uint32_t id = 0; id < items; ++id) {
-        auto& item = mItems.emplace_back();
-        item.read(stream);
+        // Special types
+        auto key_type = catalog.addType("key", 4);
+        auto asset_type = catalog.addType("asset", 4);
+        auto nullable_type = catalog.addType("nullable", 4);
+        auto array_type = catalog.addType("array", 8);  // Size + offset
+        auto enum_type = catalog.addType("enum", 4);
+        auto dNullable_type = catalog.addType("dNullable", 4);
+
+        //  Phase
+        {
+            auto phase = catalog.addStruct("Phase");
+            phase->addField("gambit", array_type, 0);
+            phase->addField("phaseType", enum_type, 4);
+            phase->addField("cGambitDefinition", key_type, 52, true);
+            phase->addField("startNode", bool_type, 12);
+        }
+
+        //  Noun
+        {
+            auto noun = catalog.addStruct("Noun");
+            noun->addField("nounType", array_type, 0);
+            noun->addField("clientOnly", bool_type, 4);
+            noun->addField("isFixed", bool_type, 5);
+            noun->addField("isSelfPowered", bool_type, 6);
+            noun->addField("lifetime", float_type, 12);
+            noun->addField("gfxPickMethod", float_type, 8);
+            noun->addField("graphicsScale", float_type, 20);
+            noun->addField("modelKey", key_type, 36, true);
+
+            auto bbox = catalog.addStruct("cSPBoundingBox");
+            bbox->addField("min", vec3_type, 0);
+            bbox->addField("max", vec3_type, 12);
+            noun->addStructField("boundingBox", "cSPBoundingBox", 56);
+
+            noun->addField("presetExtents", enum_type, 80);
+            noun->addField("voice", nullable_type, catalog.getType("char*"), 96, true);
+            noun->addField("foot", nullable_type, catalog.getType("char*"), 112, true);
+            noun->addField("flightSound", nullable_type, catalog.getType("char*"), 128, true);
+            noun->addField("gfxStates", nullable_type, catalog.getType("char*"), 132, true);
+            noun->addField("doorDef", nullable_type, 136, true);
+            noun->addField("switchDef", nullable_type, 140, true);
+            noun->addField("pressureSwitchDef", nullable_type, 144, true);
+            noun->addField("crystalDef", nullable_type, 148, true);
+            noun->addField("assetId", uint64_type, 152);
+            noun->addField("npcClassData", nullable_type, catalog.getType("asset"), 160, true);
+            noun->addField("playerClassData", nullable_type, catalog.getType("char*"), 164, true);
+            noun->addField("characterAnimationData", nullable_type, catalog.getType("char*"), 168, true);
+
+            auto creatureThumbnailData = catalog.addStruct("creatureThumbnailData");
+            creatureThumbnailData->addField("fovY", float_type, 0, true);
+            creatureThumbnailData->addField("nearPlane", float_type, 4, true);
+            creatureThumbnailData->addField("farPlane", float_type, 8, true);
+            creatureThumbnailData->addField("cameraPosition", vec3_type, 12, true);
+            creatureThumbnailData->addField("cameraScale", float_type, 24, true);
+            creatureThumbnailData->addField("cameraRotation_0", vec3_type, 28, true);
+            creatureThumbnailData->addField("cameraRotation_1", vec3_type, 40, true);
+            creatureThumbnailData->addField("cameraRotation_2", vec3_type, 52, true);
+            creatureThumbnailData->addField("mouseCameraDataValid", uint32_type, 64, true);
+            creatureThumbnailData->addField("mouseCameraOffset", vec3_type, 68, true);
+            creatureThumbnailData->addField("mouseCameraSubjectPosition", vec3_type, 80, true);
+            creatureThumbnailData->addField("mouseCameraTheta", float_type, 92, true);
+            creatureThumbnailData->addField("mouseCameraPhi", float_type, 96, true);
+            creatureThumbnailData->addField("mouseCameraRoll", float_type, 100, true);
+            creatureThumbnailData->addField("poseAnimID", uint32_type, 104, true);
+            //creatureThumbnailData->addField("mouseCameraSubjectPosition", bool, 32);
+            noun->addField("creatureThumbnailData", nullable_type, catalog.getType("struct:creatureThumbnailData"), 172, true);
+
+            noun->addField("eliteAssetIds", nullable_type, catalog.getType("uint64_type"), 176, false);
+            noun->addField("physicsType", enum_type, 184);
+            noun->addField("density", float_type, 188);
+            noun->addField("physicsKey", key_type, 204, true);
+
+            auto locomotionTuning = catalog.addStruct("locomotionTuning");
+            locomotionTuning->addField("acceleration", float_type, 0, true);
+            locomotionTuning->addField("deceleration", float_type, 4, true);
+            locomotionTuning->addField("turnRate", float_type, 8, true);
+            noun->addField("locomotionTuning", nullable_type, catalog.getType("struct:locomotionTuning"), 304, true);
+
+            auto sharedComponentData = catalog.addStruct("sharedComponentData");
+            sharedComponentData->addField("toonType", key_type, 0, true);
+            sharedComponentData->addField("modelEffect", key_type, 0, true);
+            sharedComponentData->addField("removalEffect", key_type, 0, true);
+            sharedComponentData->addField("meleeDeathEffect", key_type, 0, true);
+            sharedComponentData->addField("meleeCritEffect", key_type, 0, true);
+            sharedComponentData->addField("energyDeathEffect", key_type, 0, true);
+            sharedComponentData->addField("energyCritEffect", key_type, 0, true);
+            sharedComponentData->addField("plasmaDeathEffect", key_type, 0, true);
+            sharedComponentData->addField("plasmaCritEffect", key_type, 0, true);
+            noun->addField("sharedComponentData", nullable_type, catalog.getType("struct:sharedComponentData"), 312, true);
+        }
+
+        //  ClassAttributes
+        {
+            auto classAttributes = catalog.addStruct("ClassAttributes");
+            classAttributes->addField("baseHealth", float_type, 0);
+            classAttributes->addField("baseMana", float_type, 4);
+            classAttributes->addField("baseStrength", float_type, 8);
+            classAttributes->addField("baseDexterity", float_type, 12);
+            classAttributes->addField("baseMind", float_type, 16);
+            classAttributes->addField("basePhysicalDefense", float_type, 20);
+            classAttributes->addField("baseMagicalDefense", float_type, 24);
+            classAttributes->addField("baseEnergyDefense", float_type, 28);
+            classAttributes->addField("baseCritical", float_type, 32);
+            classAttributes->addField("baseCombatSpeed", float_type, 36);
+            classAttributes->addField("baseNonCombatSpeed", float_type, 40);
+            classAttributes->addField("baseStealthDetection", float_type, 44);
+            classAttributes->addField("baseMovementSpeedBuff", float_type, 48);
+            classAttributes->addField("maxHealth", float_type, 52);
+            classAttributes->addField("maxMana", float_type, 56);
+            classAttributes->addField("maxStrength", float_type, 60);
+            classAttributes->addField("maxDexterity", float_type, 64);
+            classAttributes->addField("maxMind", float_type, 68);
+            classAttributes->addField("maxPhysicalDefense", float_type, 72);
+            classAttributes->addField("maxMagicalDefense", float_type, 76);
+            classAttributes->addField("maxEnergyDefense", float_type, 80);
+            classAttributes->addField("maxCritical", float_type, 84);
+        }
+
+        //  PlayerClass
+        {
+            auto playerClass = catalog.addStruct("PlayerClass");
+            playerClass->addField("testingOnly", bool_type, 0);
+            playerClass->addField("creatureClass", enum_type, 72);
+            playerClass->addField("primaryAttribute", enum_type, 76);
+            playerClass->addField("unlockLevel", enum_type, 80);
+            playerClass->addField("basicAbility", key_type, 96, true);
+            playerClass->addField("basicAbility", key_type, 96, true);
+            playerClass->addField("specialAbility1", key_type, 112, true);
+            playerClass->addField("specialAbility2", key_type, 128, true);
+            playerClass->addField("specialAbility3", key_type, 144, true);
+            playerClass->addField("passiveAbility", key_type, 160, true);
+            playerClass->addField("sharedAbilityOffset", vec3_type, 172);
+            playerClass->addField("mpClassAttributes", asset_type, 12, true);
+            playerClass->addField("mpClassEffect", asset_type, 8, true);
+            playerClass->addField("originalHandBlock", key_type, 196, true);
+            playerClass->addField("originalFootBlock", key_type, 212, true);
+            playerClass->addField("originalWeaponBlock", key_type, 228, true);
+            playerClass->addField("weaponMinDamage", float_type, 232);
+            playerClass->addField("weaponMaxDamage", float_type, 236);
+            playerClass->addField("noHands", bool_type, 248);
+            playerClass->addField("noFeet", bool_type, 249);
+            playerClass->addField("descriptionTag", key_type, 164, true);
+            playerClass->addField("editableCharacterPart", key_type, 240, true);
+        }
+
+        //  NonPlayerClass
+        {
+            auto nonPlayerClass = catalog.addStruct("NonPlayerClass");
+            nonPlayerClass->addField("testingOnly", bool_type, 0);
+            auto name = catalog.addStruct("name");
+            name->addField("str", key_type, 0, true);
+            name->addField("id", key_type, 4, true);
+            nonPlayerClass->addStructField("name", "name", 16);
+            nonPlayerClass->addField("creatureType", enum_type, 4);
+            nonPlayerClass->addField("aggroRange", float_type, 56);
+            nonPlayerClass->addField("alertRange", float_type, 60);
+            nonPlayerClass->addField("dropAggroRange", float_type, 64);
+            nonPlayerClass->addField("challengeValue", float_type, 36);
+            nonPlayerClass->addField("mNPCType", enum_type, 68);
+            nonPlayerClass->addField("npcRank", enum_type, 72);
+            nonPlayerClass->addField("mpClassAttributes", key_type, 12, true);
+            nonPlayerClass->addField("mpClassEffect", nullable_type, catalog.getType("char*"), 8, true);
+            auto description = catalog.addStruct("description");
+            description->addField("str", key_type, 0, true);
+            description->addField("id", key_type, 4, true);
+            nonPlayerClass->addStructField("description", "description", 80);
+            nonPlayerClass->addField("dropType", array_type, 40);
+            nonPlayerClass->addField("dropDelay", float_type, 52);
+            nonPlayerClass->addField("targetable", bool_type, 76);
+            nonPlayerClass->addField("playerCountHealthScale", float_type, 100);
+            nonPlayerClass->addField("longDescription", array_type, 104);
+            nonPlayerClass->addField("eliteAffix", array_type, 112);
+            nonPlayerClass->addField("playerPet", bool_type, 120);
+        }
+
+        //  CharacterAnimation
+        {
+            auto characterAnimation = catalog.addStruct("CharacterAnimation");
+            characterAnimation->addField("gaitOverlay", uint32_type, 0);
+            characterAnimation->addField("overrideGait", uint32_type, 80);
+            characterAnimation->addField("ignoreGait", bool_type, 84);
+            characterAnimation->addField("morphology", nullable_type, catalog.getType("char*"), 100, true);
+            characterAnimation->addField("preAggroIdleAnimState", nullable_type, catalog.getType("char*"), 116, true);
+            characterAnimation->addField("idleAnimState", nullable_type, catalog.getType("char*"), 132, true);
+            characterAnimation->addField("lobbyIdleAnimState", nullable_type, catalog.getType("char*"), 148, true);
+            characterAnimation->addField("specialIdleAnimState", nullable_type, catalog.getType("char*"), 164, true);
+            characterAnimation->addField("walkStopState", nullable_type, catalog.getType("char*"), 180, true);
+            characterAnimation->addField("victoryIdleAnimState", nullable_type, catalog.getType("char*"), 196, true);
+            characterAnimation->addField("combatIdleAnimState", nullable_type, catalog.getType("char*"), 212, true);
+            characterAnimation->addField("moveAnimState", nullable_type, catalog.getType("char*"), 228, true);
+            characterAnimation->addField("combatMoveAnimState", nullable_type, catalog.getType("char*"), 244, true);
+            characterAnimation->addField("deathAnimState", nullable_type, catalog.getType("char*"), 260, true);
+            characterAnimation->addField("aggroAnimState", nullable_type, catalog.getType("char*"), 276, true);
+            characterAnimation->addField("aggroAnimDuration", float_type, 280);
+            characterAnimation->addField("subsequentAggroAnimState", nullable_type, catalog.getType("char*"), 296, true);
+            characterAnimation->addField("subsequentAggroAnimDuration", float_type, 300);
+            characterAnimation->addField("enterPassiveIdleAnimState", nullable_type, catalog.getType("char*"), 316, true);
+            characterAnimation->addField("enterPassiveIdleAnimDuration", float_type, 320);
+            characterAnimation->addField("danceEmoteAnimState", nullable_type, catalog.getType("char*"), 336, true);
+            characterAnimation->addField("meleeDeathAnimState", nullable_type, catalog.getType("char*"), 352, true);
+            characterAnimation->addField("meleeCritDeathAnimState", nullable_type, catalog.getType("char*"), 368, true);
+            characterAnimation->addField("meleeCritKnockbackDeathAnimState", nullable_type, catalog.getType("char*"), 384, true);
+            characterAnimation->addField("cyberCritDeathAnimState", nullable_type, catalog.getType("char*"), 400, true);
+            characterAnimation->addField("cyberCritKnockbackDeathAnimState", nullable_type, catalog.getType("char*"), 416, true);
+            characterAnimation->addField("plasmaCritDeathAnimState", nullable_type, catalog.getType("char*"), 432, true);
+            characterAnimation->addField("plasmaCritKnockbackDeathAnimState", nullable_type, catalog.getType("char*"), 448, true);
+            characterAnimation->addField("bioCritDeathAnimState", nullable_type, catalog.getType("char*"), 464, true);
+            characterAnimation->addField("bioCritKnockbackDeathAnimState", nullable_type, catalog.getType("char*"), 480, true);
+            characterAnimation->addField("necroCritDeathAnimState", nullable_type, catalog.getType("char*"), 496, true);
+            characterAnimation->addField("necroCritKnockbackDeathAnimState", nullable_type, catalog.getType("char*"), 512, true);
+            characterAnimation->addField("spacetimeCritDeathAnimState", nullable_type, catalog.getType("char*"), 528, true);
+            characterAnimation->addField("spacetimeCritKnockbackDeathAnimState", nullable_type, catalog.getType("char*"), 544, true);
+            characterAnimation->addField("bodyFadeAnimState", nullable_type, catalog.getType("char*"), 560, true);
+            characterAnimation->addField("randomAbility1AnimState", nullable_type, catalog.getType("char*"), 576, true);
+            characterAnimation->addField("randomAbility2AnimState", nullable_type, catalog.getType("char*"), 592, true);
+            characterAnimation->addField("randomAbility3AnimState", nullable_type, catalog.getType("char*"), 608, true);
+            characterAnimation->addField("overlay1AnimState", nullable_type, catalog.getType("char*"), 624, true);
+            characterAnimation->addField("overlay2AnimState", nullable_type, catalog.getType("char*"), 640, true);
+            characterAnimation->addField("overlay3AnimState", nullable_type, catalog.getType("char*"), 656, true);
+        }
+
+        //  MarkerSet
+        {
+            auto markerSetHeader = catalog.addStruct("MarkerSetHeader", 40);
+            markerSetHeader->addField("version", uint32_type, 0);
+            markerSetHeader->addField("entryCount", uint32_type, 4);
+        }
+        {
+            auto decalData = catalog.addStruct("decalData", 268);
+            decalData->addField("size", vec3_type, 0, true);
+            decalData->addField("material", key_type, 12, true);
+            decalData->addField("layer", enum_type, 76, true);
+            decalData->addField("diffuse", key_type, 80, true);
+            decalData->addField("normal", key_type, 144, true);
+            decalData->addField("diffuseTint", vec3_type, 208, true);
+            decalData->addField("opacity", float_type, 220, true);
+            decalData->addField("specularTint", vec3_type, 224, true);
+            decalData->addField("tile", vec2_type, 236, true);
+            decalData->addField("normalLevel", float_type, 240, true);
+            decalData->addField("glowLevel", float_type, 248, true);
+            decalData->addField("emissiveLevel", float_type, 252, true);
+            decalData->addField("specExponent", float_type, 256, true);
+            decalData->addField("specExponent", float_type, 260, true);
+            decalData->addField("enable", bool_type, 264, true);
+            decalData->addField("display_volume", bool_type, 265, true);
+        }
+        {
+            auto markerSetEntry = catalog.addStruct("MarkerSetEntry", 200);
+            markerSetEntry->addField("markerName", key_type, 0, true);
+            markerSetEntry->addField("markerId", uint32_type, 4);
+            markerSetEntry->addField("nounDef", key_type, 8, true);
+            markerSetEntry->addField("pos", vec3_type, 28);
+            markerSetEntry->addField("rotDegrees", vec3_type, 40);
+            markerSetEntry->addField("scale", float_type, 52);
+            markerSetEntry->addField("dimensions", vec3_type, 56);
+            markerSetEntry->addField("visible", bool_type, 68);
+            markerSetEntry->addField("castShadows", bool_type, 69);
+            markerSetEntry->addField("backFaceShadows", bool_type, 70);
+            markerSetEntry->addField("onlyShadows", bool_type, 71);
+            markerSetEntry->addField("createWithCollision", bool_type, 72);
+            markerSetEntry->addField("debugDisplayKDTree", bool_type, 73);
+            markerSetEntry->addField("debugDisplayNormals", bool_type, 74);
+            markerSetEntry->addField("navMeshSetting", enum_type, 76);
+            markerSetEntry->addField("assetOverrideId", uint64_type, 80);
+            markerSetEntry->addField("ignoreOnXBox", bool_type, 160);
+            markerSetEntry->addField("ignoreOnMinSpec", bool_type, 161);
+            markerSetEntry->addField("ignoreOnPC", bool_type, 162);
+            markerSetEntry->addField("highSpecOnly", bool_type, 163);
+            markerSetEntry->addField("targetMarkerId", uint32_type, 164);
+
+            markerSetEntry->addField("pointLightData", nullable_type, catalog.getType("uint32_t"), 92, false);
+            markerSetEntry->addField("spotLightData", nullable_type, catalog.getType("uint32_t"), 96, false);
+            markerSetEntry->addField("lineLightData", nullable_type, catalog.getType("uint32_t"), 100, false);
+            markerSetEntry->addField("parallelLightData", nullable_type, catalog.getType("uint32_t"), 104, false);
+            markerSetEntry->addField("graphicsData", nullable_type, catalog.getType("uint32_t"), 112, false);
+
+            auto animatedData = catalog.addStruct("animatedData");
+            animatedData->addField("animatorData", key_type, 0, true);
+
+            markerSetEntry->addField("animatedData", dNullable_type, catalog.getType("struct:animatedData"), 124, true);
+
+            markerSetEntry->addField("decalData", nullable_type, catalog.getType("struct:decalData"), 128, true);
+        }
+
+        catalog.registerFileType(".Phase", { "Phase" }, 68);
+        catalog.registerFileType(".Noun", { "Noun" }, 480);
+        catalog.registerFileType(".ClassAttributes", { "ClassAttributes" }, 0);
+        catalog.registerFileType(".PlayerClass", { "PlayerClass" }, 256);
+        catalog.registerFileType(".NonPlayerClass", { "NonPlayerClass" }, 124);
+        catalog.registerFileType(".CharacterAnimation", { "CharacterAnimation" }, 660);
+        catalog.registerFileType(".MarkerSet", { "MarkerSetHeader" }, 0, true, "MarkerSetHeader", "MarkerSetEntry", 40, 200, 4);
     }
 
-    stream.seek((items * 0x28) + 8, SEEK_SET);
-    for (auto& item : mItems) {
-        // Read strings and other dynamic data here
-        // This would depend on the exact file format
-    }
-
-    return true;
-}
-
-void Catalog::write(const std::string& filename) const {
-    // Implement writing functionality
-}
-
-Type::Type(std::string name, uint32_t size)
-    : mName(std::move(name)), mSize(size) {
-}
-
-void Type::addField(const std::string& name, std::shared_ptr<Type> type, size_t offset, bool useKeyData) {
-    // For padding type, offset is used to store the padding size
-    if (type->getName() == "padding") {
-        mFields.push_back({ name, type, offset, useKeyData });
-    }
-    else {
-        mFields.push_back({ name, type, offset, useKeyData });
-    }
-}
-
-TypeDatabase::TypeDatabase() {
-    // Constructor
-}
-
-TypeDatabase& TypeDatabase::instance() {
-    return sInstance;
-}
-
-std::shared_ptr<Type> TypeDatabase::add(std::string name, uint32_t size) {
-    auto type = std::make_shared<Type>(std::move(name), size);
-    mTypes[type->getName()] = type;
-    mTypesByHash[HashFunction(type->getName().c_str(), -2128831035, 1)] = type;
-    return type;
-}
-
-std::shared_ptr<Type> TypeDatabase::addStruct(std::string name) {
-    return add(std::move(name), 0);
-}
-
-std::shared_ptr<Type> TypeDatabase::getType(const std::string& name) {
-    auto it = mTypes.find(name);
-    return (it != mTypes.end()) ? it->second : nullptr;
-}
-
-std::shared_ptr<Type> TypeDatabase::getTypeByHash(uint32_t hash) {
-    auto it = mTypesByHash.find(hash);
-    return (it != mTypesByHash.end()) ? it->second : nullptr;
-}
-
-void TypeDatabase::initialize() {
-    // Define basic types
-    auto int_type = add("int", sizeof(int32_t));
-    auto int64_t_type = add("int64_t", sizeof(int64_t));
-    auto uint32_t_type = add("uint32_t", sizeof(uint32_t));
-    auto uint64_t_type = add("uint64_t", sizeof(uint64_t));
-    auto bool_type = add("bool", sizeof(bool));
-    auto padding_type = add("padding", 0);
-    auto cLocalizedAssetString = add("cLocalizedAssetString", 4);
-    auto char_type = add("char", sizeof(char));
-
-    // Define floating point types
-    auto float_type = add("float", sizeof(float));
-    auto double_type = add("double", sizeof(double));
-    auto vec3_type = add("vec3", sizeof(vec3));
-
-    // Define special types
-    auto char_ptr_type = add("char*", sizeof(char*));
-    auto asset_type = add("asset", sizeof(uint32_t));
-    auto nullable_type = add("nullable", 4);
-    auto key_type = add("key", 4);
-    auto array_type = add("array", 4);
-    auto enum_type = add("enum", 4);
-
-    add("cLocalizedAssetString", 4);
-
-    //  CatalogEntry
-    {
-        auto catalogEntry = addStruct("CatalogEntry");
-        catalogEntry->addField("assetNameWType", char_ptr_type, 0);
-        catalogEntry->addField("compileTime", int64_t_type, 8);
-        catalogEntry->addField("dataCrc", uint32_t_type, 16);
-        catalogEntry->addField("typeCrc", uint32_t_type, 20);
-        catalogEntry->addField("sourceFileNameWType", char_ptr_type, 24);
-        catalogEntry->addField("version", int_type, 28);
-        catalogEntry->addField("tags", array_type, 32);
-    }
-
-    //  Catalog
-    {
-        auto catalog = addStruct("Catalog");
-        catalog->addField("entries", array_type, 0);
-    }
-
-    //  Noun
-    {
-        auto noun = addStruct("Noun");
-        noun->addField("nounType", enum_type, 0);
-        noun->addField("clientOnly", bool_type, 4);
-        noun->addField("isFixed", bool_type, 5);
-        noun->addField("isSelfPowered", bool_type, 6);
-        noun->addField("lifetime", float_type, 12);
-        noun->addField("gfxPickMethod", enum_type, 8);
-        noun->addField("graphicsScale", float_type, 20);
-        noun->addField("modelKey", key_type, 36);
-
-        auto bbox = addStruct("cSPBoundingBox");
-        bbox->addField("min", vec3_type, 56);
-        bbox->addField("max", vec3_type, 68);
-
-        noun->addField("cSPBoundingBox", bbox, 24);
-        noun->addField("presetExtents", enum_type, 80);
-        noun->addField("voice", key_type, 96);
-        noun->addField("foot", key_type, 112);
-        noun->addField("flightSound", key_type, 128);
-        noun->addField("assetId", uint64_t_type, 152);
-        noun->addField("playerClassData", asset_type, 164);
-        noun->addField("characterAnimationData", asset_type, 168);
-        noun->addField("creatureThumbnailData", nullable_type, 172);
-
-        auto creatureThumbnailData = addStruct("creatureThumbnailData");
-        creatureThumbnailData->addField("fovY", float_type, 0, true);
-        creatureThumbnailData->addField("nearPlane", float_type, 0, true);
-        creatureThumbnailData->addField("farPlane", float_type, 0, true);
-        creatureThumbnailData->addField("cameraPosition", vec3_type, 0, true);
-        creatureThumbnailData->addField("cameraScale", float_type, 0, true);
-        creatureThumbnailData->addField("cameraRotation_0", vec3_type, 0, true);
-        creatureThumbnailData->addField("cameraRotation_1", vec3_type, 0, true);
-        creatureThumbnailData->addField("cameraRotation_2", vec3_type, 0, true);
-        creatureThumbnailData->addField("mouseCameraDataValid", bool_type, 0, true);
-        creatureThumbnailData->addField("padding", padding_type, 3, true);
-        creatureThumbnailData->addField("mouseCameraOffset", vec3_type, 0, true);
-        creatureThumbnailData->addField("mouseCameraSubjectPosition", vec3_type, 0, true);
-        creatureThumbnailData->addField("mouseCameraTheta", float_type, 0, true);
-        creatureThumbnailData->addField("mouseCameraPhi", float_type, 0, true);
-        creatureThumbnailData->addField("mouseCameraRoll", float_type, 0, true);
-        creatureThumbnailData->addField("poseAnimID", enum_type, 0, true);
-
-        noun->addField("creatureThumbnailData", creatureThumbnailData, 172);
-
-        noun->addField("physicsType", enum_type, 184);
-        noun->addField("density", float_type, 188);
-        noun->addField("physicsKey", key_type, 204);
-        noun->addField("affectsNavMesh", bool_type, 208);
-        noun->addField("dynamicWall", bool_type, 209);
-        noun->addField("hasLocomotion", bool_type, 219);
-        noun->addField("locomotionType", enum_type, 220);
-        noun->addField("hasNetworkComponent", bool_type, 216);
-        noun->addField("hasCombatantComponent", bool_type, 218);
-        noun->addField("hasCameraComponent", bool_type, 217);
-        noun->addField("spawnTeamId", enum_type, 224);
-        noun->addField("isIslandMarker", bool_type, 228);
-        noun->addField("locomotionTuning", nullable_type, 304);
-
-        auto locomotionTuning = addStruct("locomotionTuning");
-        locomotionTuning->addField("acceleration", float_type, 0, true);
-        locomotionTuning->addField("deceleration", float_type, 0, true);
-        locomotionTuning->addField("turnRate", float_type, 0, true);
-
-        noun->addField("locomotionTuning", locomotionTuning, 304);
-
-        auto shared = addStruct("SharedComponentData");
-
-        noun->addField("toonType", key_type, 324);
-        noun->addField("isFlora", bool_type, 328);
-        noun->addField("isMineral", bool_type, 329);
-        noun->addField("isCreature", bool_type, 330);
-        noun->addField("isPlayer", bool_type, 331);
-        noun->addField("isSpawned", bool_type, 332);
-        noun->addField("modelEffect", key_type, 348);
-        noun->addField("removalEffect", key_type, 364);
-        noun->addField("meleeDeathEffect", key_type, 396);
-        noun->addField("meleeCritEffect", key_type, 412);
-        noun->addField("energyDeathEffect", key_type, 428);
-        noun->addField("energyCritEffect", key_type, 444);
-        noun->addField("plasmaDeathEffect", key_type, 460);
-        noun->addField("plasmaCritEffect", key_type, 476);
-    }
-
-    //  ClassAttributes
-    {
-        auto classAttributes = addStruct("ClassAttributes");
-        classAttributes->addField("baseHealth", float_type, 0);
-        classAttributes->addField("baseMana", float_type, 4);
-        classAttributes->addField("baseStrength", float_type, 8);
-        classAttributes->addField("baseDexterity", float_type, 12);
-        classAttributes->addField("baseMind", float_type, 16);
-        classAttributes->addField("basePhysicalDefense", float_type, 20);
-        classAttributes->addField("baseMagicalDefense", float_type, 24);
-        classAttributes->addField("baseEnergyDefense", float_type, 28);
-        classAttributes->addField("baseCritical", float_type, 32);
-        classAttributes->addField("baseCombatSpeed", float_type, 36);
-        classAttributes->addField("baseNonCombatSpeed", float_type, 40);
-        classAttributes->addField("baseStealthDetection", float_type, 44);
-        classAttributes->addField("baseMovementSpeedBuff", float_type, 48);
-        classAttributes->addField("maxHealth", float_type, 52);
-        classAttributes->addField("maxMana", float_type, 56);
-        classAttributes->addField("maxStrength", float_type, 60);
-        classAttributes->addField("maxDexterity", float_type, 64);
-        classAttributes->addField("maxMind", float_type, 68);
-        classAttributes->addField("maxPhysicalDefense", float_type, 72);
-        classAttributes->addField("maxMagicalDefense", float_type, 76);
-        classAttributes->addField("maxEnergyDefense", float_type, 80);
-        classAttributes->addField("maxCritical", float_type, 84);
-    }
-    //  PlayerClass
-    {
-        auto playerClass = addStruct("PlayerClass");
-        playerClass->addField("testingOnly", bool_type, 0);
-        playerClass->addField("speciesName", char_ptr_type, 16);
-        playerClass->addField("nameLocaleKey", key_type, 32);
-        playerClass->addField("shortNameLocaleKey", key_type, 48);
-        playerClass->addField("creatureType", enum_type, 4);
-        playerClass->addField("localeTableID", key_type, 64);
-        playerClass->addField("homeworld", enum_type, 68);
-        playerClass->addField("creatureClass", enum_type, 72);
-        playerClass->addField("primaryAttribute", enum_type, 76);
-        playerClass->addField("unlockLevel", enum_type, 80);
-        playerClass->addField("basicAbility", key_type, 96);
-        playerClass->addField("specialAbility1", key_type, 112);
-        playerClass->addField("specialAbility2", key_type, 128);
-        playerClass->addField("specialAbility3", key_type, 144);
-        playerClass->addField("passiveAbility", key_type, 160);
-
-        auto vec3 = addStruct("cSPVector3");
-        vec3->addField("cSPVector3", vec3_type, 172);
-
-        playerClass->addField("sharedAbilityOffset", vec3, 172);
-        playerClass->addField("mpClassAttributes", asset_type, 12);
-        playerClass->addField("mpClassEffect", asset_type, 8);
-        playerClass->addField("originalHandBlock", key_type, 196);
-        playerClass->addField("originalFootBlock", key_type, 212);
-        playerClass->addField("originalWeaponBlock", key_type, 228);
-        playerClass->addField("weaponMinDamage", float_type, 232);
-        playerClass->addField("weaponMaxDamage", float_type, 236);
-        playerClass->addField("noHands", bool_type, 248);
-        playerClass->addField("noFeet", bool_type, 249);
-        playerClass->addField("descriptionTag", array_type, 164);
-        playerClass->addField("editableCharacterPart", array_type, 240);
-    }
-    //  NonPlayerClass
-    {
-        auto nonPlayerClass = addStruct("NonPlayerClass");
-        nonPlayerClass->addField("testingOnly", bool_type, 0);
-
-        auto name = addStruct("name");
-            name->addField("localized_asset_string", cLocalizedAssetString, 0, true);
-            name->addField("localized_asset_id", cLocalizedAssetString, 0, true);
-
-        nonPlayerClass->addField("name", name, 16);
-        nonPlayerClass->addField("creatureType", enum_type, 4);
-        nonPlayerClass->addField("aggroRange", float_type, 56);
-        nonPlayerClass->addField("alertRange", float_type, 60);
-        nonPlayerClass->addField("dropAggroRange", float_type, 64);
-        nonPlayerClass->addField("challengeValue", int_type, 34);
-        nonPlayerClass->addField("mNPCType", enum_type, 68);
-        nonPlayerClass->addField("npcRank", int_type, 68);
-        nonPlayerClass->addField("mpClassAttributes", asset_type, 12);
-        nonPlayerClass->addField("mpClassEffect", asset_type, 8);
-
-        auto description = addStruct("description");
-        description->addField("localized_asset_string", cLocalizedAssetString, 0, true);
-        description->addField("localized_asset_id", cLocalizedAssetString, 0, true);
-
-        nonPlayerClass->addField("description", name, 80);
-        nonPlayerClass->addField("dropType", array_type, 40);
-        nonPlayerClass->addField("enum", array_type, 4);
-        nonPlayerClass->addField("dropDelay", float_type, 52);
-        nonPlayerClass->addField("targetable", bool_type, 76);
-        nonPlayerClass->addField("playerCountHealthScale", float_type, 100);
-        nonPlayerClass->addField("longDescription", array_type, 104, true);
-        nonPlayerClass->addField("eliteAffix", array_type, 112);
-        nonPlayerClass->addField("cEliteAffix", array_type, 12);
-        nonPlayerClass->addField("playerPet", bool_type, 120);
-    }
-    //  CharacterAnimation
-    {
-        auto characterAnimation = addStruct("CharacterAnimation");
-        characterAnimation->addField("gaitOverlay", uint32_t_type, 80);
-        characterAnimation->addField("overrideGait", char_type, 0);
-        characterAnimation->addField("ignoreGait", bool_type, 84);
-        characterAnimation->addField("morphology", key_type, 100);
-        characterAnimation->addField("preAggroIdleAnimState", key_type, 116);
-        characterAnimation->addField("idleAnimState", key_type, 132);
-        characterAnimation->addField("lobbyIdleAnimState", key_type, 148);
-        characterAnimation->addField("specialIdleAnimState", key_type, 164);
-        characterAnimation->addField("walkStopState", key_type, 180);
-        characterAnimation->addField("victoryIdleAnimState", key_type, 196);
-        characterAnimation->addField("combatIdleAnimState", key_type, 212);
-        characterAnimation->addField("moveAnimState", key_type, 228);
-        characterAnimation->addField("combatMoveAnimState", key_type, 244);
-        characterAnimation->addField("deathAnimState", key_type, 260);
-        characterAnimation->addField("aggroAnimState", key_type, 276);
-        characterAnimation->addField("aggroAnimDuration", float_type, 280);
-        characterAnimation->addField("subsequentAggroAnimState", float_type, 296);
-        characterAnimation->addField("subsequentAggroAnimDuration", float_type, 300);
-        characterAnimation->addField("enterPassiveIdleAnimState", float_type, 316);
-        characterAnimation->addField("enterPassiveIdleAnimDuration", float_type, 320);
-        characterAnimation->addField("danceEmoteAnimState", key_type, 336);
-        characterAnimation->addField("meleeDeathAnimState", key_type, 352);
-        characterAnimation->addField("meleeCritDeathAnimState", key_type, 368);
-        characterAnimation->addField("meleeCritKnockbackDeathAnimState", key_type, 384);
-        characterAnimation->addField("cyberCritDeathAnimState", key_type, 400);
-        characterAnimation->addField("cyberCritKnockbackDeathAnimState", key_type, 416);
-        characterAnimation->addField("plasmaCritDeathAnimState", key_type, 432);
-        characterAnimation->addField("plasmaCritKnockbackDeathAnimState", key_type, 448);
-        characterAnimation->addField("bioCritDeathAnimState", key_type, 464);
-        characterAnimation->addField("bioCritKnockbackDeathAnimState", key_type, 480);
-        characterAnimation->addField("necroCritDeathAnimState", key_type, 496);
-        characterAnimation->addField("necroCritKnockbackDeathAnimState", key_type, 512);
-        characterAnimation->addField("spacetimeCritDeathAnimState", key_type, 528);
-        characterAnimation->addField("spacetimeCritKnockbackDeathAnimState", key_type, 544);
-        characterAnimation->addField("bodyFadeAnimState", key_type, 560);
-        characterAnimation->addField("randomAbility1AnimState", key_type, 576);
-        characterAnimation->addField("randomAbility2AnimState", key_type, 592);
-        characterAnimation->addField("randomAbility3AnimState", key_type, 608);
-        characterAnimation->addField("overlay1AnimState", key_type, 624);
-        characterAnimation->addField("overlay2AnimState", key_type, 640);
-        characterAnimation->addField("overlay3AnimState", key_type, 656);
-    }
-    //  Phase
-    {
-        auto phase = addStruct("Phase");
-        phase->addField("gambit", array_type, 0);
-        phase->addField("phaseType", enum_type, 4);
-        phase->addField("cGambitDefinition", key_type, 52);
-        phase->addField("startNode", bool_type, 12);
-    }
-    //  AiDefinition
-    {
-        auto phase = addStruct("AiDefinition");
-        phase->addField("gambit", array_type, 0);
-        phase->addField("phaseType", enum_type, 4);
-        phase->addField("cGambitDefinition", key_type, 52);
-        phase->addField("startNode", bool_type, 12);
-    }
-}
-
-uint32_t HashFunction(const char* str, uint32_t seed, uint32_t len) {
-    if (!str) return 0;
-
-    uint32_t hash = seed;
-    while (*str && (len == 0 || len--)) {
-        hash = ((hash << 5) + hash) + *str++;
-    }
-    return hash;
-}
+} // namespace parser
