@@ -1,5 +1,5 @@
-//{{NO_DEPENDENCIES}}
-// Arquivo de inclus�o gerado pelo Microsoft Visual C++.
+﻿//{{NO_DEPENDENCIES}}
+// Arquivo de inclusão gerado pelo Microsoft Visual C++.
 // Usado por Resource.rc
 //
 #define IDI_ICON1                       103
