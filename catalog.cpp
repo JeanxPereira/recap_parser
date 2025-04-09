@@ -51,8 +51,8 @@ void Catalog::initialize() {
     noun->add("levelEditorModelKey", "key", 52);
 
     auto bbox = add_struct("cSPBoundingBox");
-    bbox->add("min", "cSPVector3", 56);
-    bbox->add("max", "cSPVector3", 68);
+    bbox->add("min", "cSPVector3", 32);
+    bbox->add("max", "cSPVector3", 44);
     addType("struct:cSPBoundingBox", DataType::STRUCT, 24, "cSPBoundingBox");
     noun->add("boundingBox", "struct:cSPBoundingBox", 24);
 
@@ -66,7 +66,7 @@ void Catalog::initialize() {
             auto cGameObjectGfxStateData = add_struct("state", 56);
                  cGameObjectGfxStateData->add("name", "key", 12);
                  cGameObjectGfxStateData->add("model", "key", 28);
-                 cGameObjectGfxStateData->add("prefab", "key", 48);
+                 cGameObjectGfxStateData->add("prefab", "asset", 48);
                  cGameObjectGfxStateData->add("animation", "key", 44);
                  cGameObjectGfxStateData->add("animationLoops", "bool", 52);
         registerArrayType("state");
@@ -74,7 +74,6 @@ void Catalog::initialize() {
 
     registerNullableType("gfxStates");
     noun->add("gfxStates", "nullable", cGameObjectGfxStates, 132);
-
     noun->add("assetId", "uint64_t", 152);
     noun->add("npcClassData", "asset", 160);
     noun->add("playerClassData", "asset", 164);
@@ -119,37 +118,117 @@ void Catalog::initialize() {
     noun->add("startFnNamespace", "char*", 244);
     noun->add("endFnNamespace", "char*", 248);
 
+    auto TriggerVolumeEvents = add_struct("events", 32);
+    TriggerVolumeEvents->add("onEnterEvent", "key", 12);
+    TriggerVolumeEvents->add("onExitEvent", "key", 28);
+    registerNullableType("events");
+
     auto TriggerVolumeDef = add_struct("triggerVolume", 136);
-    TriggerVolumeDef->add("onEnter", "uint32_t", 12);
-    TriggerVolumeDef->add("onExit", "uint32_t", 28);
-    TriggerVolumeDef->add("onStay", "uint32_t", 44);
-
-        auto TriggerVolumeEvents = add_struct("events", 32);
-        TriggerVolumeEvents->add("onEnterEvent", "uint32_t", 12);
-        TriggerVolumeEvents->add("onExitEvent", "uint32_t", 28);
-        registerNullableType("events");
-
-    TriggerVolumeDef->add("events", "nullable", TriggerVolumeEvents, 48);
-    TriggerVolumeDef->add("useGameObjectDimensions", "bool", 52);
-    TriggerVolumeDef->add("isKinematic", "bool", 53);
-    TriggerVolumeDef->add("shape", "enum", 56);
-    TriggerVolumeDef->add("offset", "cSPVector3", 60);
-    TriggerVolumeDef->add("timeToActivate", "float", 72);
-    TriggerVolumeDef->add("persistentTimer", "bool", 76);
-    TriggerVolumeDef->add("triggerOnceOnly", "bool", 77);
-    TriggerVolumeDef->add("triggerIfNotBeaten", "bool", 78);
-    TriggerVolumeDef->add("triggerActivationType", "enum", 80);
-    TriggerVolumeDef->add("luaCallbackOnEnter", "char*", 84);
-    TriggerVolumeDef->add("luaCallbackOnExit", "char*", 88);
-    TriggerVolumeDef->add("luaCallbackOnStay", "char*", 92);
-    TriggerVolumeDef->add("boxWidth", "float", 96);
-    TriggerVolumeDef->add("boxLength", "float", 100);
-    TriggerVolumeDef->add("boxHeight", "float", 104);
-    TriggerVolumeDef->add("sphereRadius", "float", 108);
-    TriggerVolumeDef->add("capsuleHeight", "float", 112);
-    TriggerVolumeDef->add("capsuleRadius", "float", 116);
-    TriggerVolumeDef->add("serverOnly", "bool", 120);
+         TriggerVolumeDef->add("onEnter", "key", 12);
+         TriggerVolumeDef->add("onExit", "key", 28);
+         TriggerVolumeDef->add("onStay", "key", 44);
+         TriggerVolumeDef->add("events", "nullable", TriggerVolumeEvents, 48);
+         TriggerVolumeDef->add("useGameObjectDimensions", "bool", 52);
+         TriggerVolumeDef->add("isKinematic", "bool", 53);
+         TriggerVolumeDef->add("shape", "enum", 56);
+         TriggerVolumeDef->add("offset", "cSPVector3", 60);
+         TriggerVolumeDef->add("timeToActivate", "float", 72);
+         TriggerVolumeDef->add("persistentTimer", "bool", 76);
+         TriggerVolumeDef->add("triggerOnceOnly", "bool", 77);
+         TriggerVolumeDef->add("triggerIfNotBeaten", "bool", 78);
+         TriggerVolumeDef->add("triggerActivationType", "enum", 80);
+         TriggerVolumeDef->add("luaCallbackOnEnter", "char*", 84);
+         TriggerVolumeDef->add("luaCallbackOnExit", "char*", 88);
+         TriggerVolumeDef->add("luaCallbackOnStay", "char*", 92);
+         TriggerVolumeDef->add("boxWidth", "float", 96);
+         TriggerVolumeDef->add("boxLength", "float", 100);
+         TriggerVolumeDef->add("boxHeight", "float", 104);
+         TriggerVolumeDef->add("sphereRadius", "float", 108);
+         TriggerVolumeDef->add("capsuleHeight", "float", 112);
+         TriggerVolumeDef->add("capsuleRadius", "float", 116);
+         TriggerVolumeDef->add("serverOnly", "bool", 120);
     registerNullableType("triggerVolume");
+
+    auto componentData = add_struct("SharedComponentData", 40);
+        auto AudioTriggerDef = add_struct("audioTrigger", 32);
+             AudioTriggerDef->add("type", "enum", 0);
+             AudioTriggerDef->add("sound", "key", 16);
+             AudioTriggerDef->add("is3D", "bool", 20);
+             AudioTriggerDef->add("retrigger", "bool", 21);
+             AudioTriggerDef->add("hardStop", "bool", 22);
+             AudioTriggerDef->add("hardStop", "bool", 22);
+             AudioTriggerDef->add("isVoiceover", "bool", 23);
+             AudioTriggerDef->add("voiceLifetime", "float", 24);
+             AudioTriggerDef->add("triggerVolume", "nullable", TriggerVolumeDef, 28);
+        registerNullableType("audioTrigger");
+
+        auto TeleporterDef = add_struct("teleporter", 12);
+             TeleporterDef->add("destinationMarkerId", "uint32_t", 0);
+             TeleporterDef->add("triggerVolume", "nullable", TriggerVolumeDef, 4);
+             TeleporterDef->add("deferTriggerCreation", "bool", 8);
+        registerNullableType("teleporter");
+
+        auto EventListenerDef = add_struct("eventListenerDef", 8);
+             EventListenerDef->add("listener", "array", 0);
+             auto EventListenerData = add_struct("listener", 40);
+                  EventListenerData->add("event", "key", 0);
+                  EventListenerData->add("callback", "key", 28);
+                  EventListenerData->add("luaCallback", "char*", 36);
+             registerArrayType("listener");
+        registerNullableType("eventListenerDef");
+
+        auto SpawnPointDef = add_struct("spawnPointDef", 8);
+        SpawnPointDef->add("sectionType", "enum", 0);
+        SpawnPointDef->add("activatesSpike", "bool", 4);
+        registerNullableType("spawnPointDef");
+
+        auto SpawnTriggerDef = add_struct("spawnTrigger",   28);
+        SpawnTriggerDef->add("triggerVolume", "nullable", TriggerVolumeDef, 0);
+        SpawnTriggerDef->add("deathEvent", "key", 16);
+        SpawnTriggerDef->add("challengeOverride", "key", 20);
+        SpawnTriggerDef->add("waveOverride", "uint32_t", 24); //??? - off_FDAB24
+        registerNullableType("spawnTrigger");
+        
+        auto InteractableDef = add_struct("interactable", 72);
+        InteractableDef->add("numUsesAllowed", "uint32_t", 0); //??? - off_FDAB24
+        InteractableDef->add("interactableAbility", "key", 16);
+        InteractableDef->add("startInteractEvent", "key", 32);
+        InteractableDef->add("endInteractEvent", "key", 48);
+        InteractableDef->add("optionalInteractEvent", "key", 64);
+        InteractableDef->add("challengeValue", "uint32_t", 68); //??? - off_FDAB24
+        registerNullableType("interactable");
+        
+        auto GameObjectGfxStateTuning = add_struct("defaultGfxState", 24);
+        GameObjectGfxStateTuning->add("name", "key", 12);
+        GameObjectGfxStateTuning->add("animationStartTime", "float", 16);
+        GameObjectGfxStateTuning->add("animationRate", "float", 20);
+        registerNullableType("defaultGfxState");
+        
+        auto CombatantDef = add_struct("combatant", 16);
+        CombatantDef->add("deathEvent", "key", 12);
+        registerNullableType("combatant");
+        
+        auto TriggerVolumeComponentDef = add_struct("triggerComponent", 4);
+        TriggerVolumeComponentDef->add("triggerVolume", "nullable", TriggerVolumeDef, 0);
+        registerNullableType("triggerComponent");
+        
+        auto SpaceshipSpawnPointDef = add_struct("spaceshipSpawnPoint", 4);
+        SpaceshipSpawnPointDef->add("index", "uint32_t", 0); //??? - off_FDAB24
+        registerNullableType("spaceshipSpawnPoint");
+
+        componentData->add("audioTrigger", "nullable", AudioTriggerDef, 0);
+        componentData->add("teleporter", "nullable", TeleporterDef, 4);
+        componentData->add("eventListenerDef", "nullable", EventListenerDef, 8);
+        componentData->add("spawnPointDef", "nullable", SpawnPointDef, 16);
+        componentData->add("spawnTrigger", "nullable", SpawnTriggerDef, 12);
+        componentData->add("interactable", "nullable", InteractableDef, 20);
+        componentData->add("defaultGfxState", "nullable", GameObjectGfxStateTuning, 24);
+        componentData->add("combatant", "nullable", CombatantDef, 28);
+        componentData->add("triggerComponent", "nullable", TriggerVolumeComponentDef, 32);
+        componentData->add("spaceshipSpawnPoint", "nullable", SpaceshipSpawnPointDef, 36);
+    addType("struct:SharedComponentData", DataType::STRUCT, 40, "SharedComponentData");
+    noun->add("SharedComponentData", "struct:SharedComponentData", 252);
+
     noun->add("triggerVolume", "nullable", TriggerVolumeDef, 292);
 
     auto LocomotionTuning = add_struct("locomotionTuning", 12);
@@ -159,6 +238,7 @@ void Catalog::initialize() {
     registerNullableType("locomotionTuning");
     noun->add("locomotionTuning", "nullable", LocomotionTuning, 304);
 
+    noun->add("gravityData", "asset", 308);
     noun->add("isFlora", "bool", 328);
     noun->add("isMineral", "bool", 329);
     noun->add("isCreature", "bool", 330);

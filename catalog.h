@@ -236,7 +236,6 @@ public:
 
     void registerNullableType(const std::string& targetStructName) {
         std::string nullableTypeName = "nullable:" + targetStructName;
-        // Só registra se ainda não existir
         if (types.find(nullableTypeName) == types.end()) {
             addType(nullableTypeName, DataType::NULLABLE, 4, targetStructName);
         }
@@ -244,7 +243,6 @@ public:
 
     void registerArrayType(const std::string& targetStructName) {
         std::string arrayTypeName = "array:" + targetStructName;
-        // Registra apenas se não existir
         if (types.find(arrayTypeName) == types.end()) {
             addType(arrayTypeName, DataType::ARRAY, 4, targetStructName);
         }
@@ -298,6 +296,11 @@ private:
     std::string filename;
 
     bool secOffsetStruct = false;
+    bool secOffsetStructArray = false;
+    bool isArrayStruct = false;
+    std::stack<size_t> structOffsetStack;
+    std::stack<size_t> arrayBaseStack;
+
     size_t currentStructBaseOffset = 0;
     std::stack<size_t> structBaseOffsetStack;
 
@@ -329,6 +332,7 @@ private:
 
     void parseStruct(const std::string& structName);
     void parseMember(const StructMember& member, const std::shared_ptr<StructDefinition>& parentStruct);
+    void parseArrayStruct(const std::string& arrayType, size_t count, size_t startOffset, bool updateSecondaryOffset = false);
 
 public:
     Parser(const Catalog& catalog, const std::string& filename, bool debugMode = false, bool xmlMode = false)

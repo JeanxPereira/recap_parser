@@ -47,48 +47,119 @@ bool Parser::parse() {
     return true;
 }
 
-void Parser::parseStruct(const std::string& structName) {
-    auto structDef = catalog.getStruct(structName);
-    if (!structDef) {
-        std::cerr << "Unknown struct: " << structName << std::endl;
+void Parser::parseArrayStruct(const std::string& arrayType, size_t count, size_t startOffset, bool updateSecondaryOffset) {
+    auto targetStruct = catalog.getStruct(arrayType);
+    if (!targetStruct) {
+        std::cerr << "Unknown struct type for array: " << arrayType << std::endl;
         return;
     }
 
-    logParse(fmt::format("parse_struct({})", structName));
+    size_t structSize = targetStruct->getFixedSize();
 
-    pugi::xml_node prevXmlNode;
-    if (xmlMode) {
-        prevXmlNode = currentXmlNode;
-        currentXmlNode = currentXmlNode.append_child(structName.c_str());
+    if (arrayType == "state" && structSize != 56) {
+        structSize = 56;
     }
 
-    // Save the current displacement base before processing a new structure
-    if (secOffsetStruct) {
-        structBaseOffsetStack.push(currentStructBaseOffset);
-        currentStructBaseOffset = offsetManager.getSecondaryOffset();
+    bool originalSecOffsetStruct = secOffsetStruct;
+    bool originalSecOffsetStructArray = secOffsetStructArray;
+    isArrayStruct = true;
+    size_t originalStructBaseOffset = currentStructBaseOffset;
+
+    secOffsetStructArray = true;
+
+    for (size_t i = 0; i < count; i++) {
+        size_t elementOffset = startOffset + (i * structSize);
+
+        pugi::xml_node prevXmlNode;
+        if (xmlMode) {
+            prevXmlNode = currentXmlNode;
+            currentXmlNode = currentXmlNode.append_child(arrayType.c_str());
+        }
+       
+        logParse(fmt::format("parse_struct({})", arrayType));
+
+        indentLevel++;
+
+        size_t savedPrimaryOffset = offsetManager.getPrimaryOffset();
+        currentStructBaseOffset = elementOffset;
+
+        for (const auto& member : targetStruct->getMembers()) {
+            parseMember(member, targetStruct);
+        }
+
+        indentLevel--;
+
+        offsetManager.setPrimaryOffset(savedPrimaryOffset);
+
+        if (xmlMode) {
+            currentXmlNode = prevXmlNode;
+        }
     }
 
-    indentLevel++;
+    secOffsetStruct = originalSecOffsetStruct;
+    secOffsetStructArray = originalSecOffsetStructArray;
+    currentStructBaseOffset = originalStructBaseOffset;
+}
 
-    for (const auto& member : structDef->getMembers()) {
-        parseMember(member, structDef);
-    }
+void Parser::parseStruct(const std::string& structName) {
+    try {
+        auto structDef = catalog.getStruct(structName);
+        if (!structDef) {
+            std::cerr << "Unknown struct: " << structName << std::endl;
+            return;
+        }
 
-    indentLevel--;
+        logParse(fmt::format("parse_struct({})", structName));
 
-    // Restore previous base offset after processing struct
-    if (secOffsetStruct) {
-        if (!structBaseOffsetStack.empty()) {
-            currentStructBaseOffset = structBaseOffsetStack.top();
-            structBaseOffsetStack.pop();
+        pugi::xml_node prevXmlNode;
+        if (xmlMode) {
+            prevXmlNode = currentXmlNode;
+            currentXmlNode = currentXmlNode.append_child(structName.c_str());
+        }
+
+        size_t previousStructBaseOffset = currentStructBaseOffset;
+
+        if (secOffsetStruct) {
+            structBaseOffsetStack.push(previousStructBaseOffset);
+            currentStructBaseOffset = offsetManager.getSecondaryOffset();
+
+            offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset() + structDef->getFixedSize());
+        }
+
+        indentLevel++;
+
+        for (const auto& member : structDef->getMembers()) {
+            parseMember(member, structDef);
+        }
+
+        indentLevel--;
+        if (secOffsetStruct) {
+            if (!structBaseOffsetStack.empty()) {
+                currentStructBaseOffset = structBaseOffsetStack.top();
+                structBaseOffsetStack.pop();
+            }
+            else {
+                currentStructBaseOffset = 0;
+            }
         }
         else {
-            currentStructBaseOffset = 0;
+            currentStructBaseOffset = previousStructBaseOffset;
+        }
+
+        if (xmlMode) {
+            currentXmlNode = prevXmlNode;
         }
     }
-
-    if (xmlMode) {
-        currentXmlNode = prevXmlNode;
+    catch (const std::exception& e) {
+        std::cerr << "Error in parse_struct(" << structName << "): "
+            << e.what() << " at position ("
+            << offsetManager.getPrimaryOffset() << ", "
+            << offsetManager.getSecondaryOffset() << ")" << std::endl;
+    }
+    catch (...) {
+        std::cerr << "Unknown error in parse_struct(" << structName << ") at position ("
+            << offsetManager.getPrimaryOffset() << ", "
+            << offsetManager.getSecondaryOffset() << ")" << std::endl;
     }
 }
 
@@ -102,11 +173,14 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
     if (secOffsetStruct) {
         offsetManager.setPrimaryOffset(currentStructBaseOffset + member.offset);
     }
+    else if (secOffsetStructArray) {
+        offsetManager.setPrimaryOffset(currentStructBaseOffset + member.offset);
+    }
     else if (member.useSecondaryOffset) {
         offsetManager.setPrimaryOffset(member.offset);
     }
     else {
-        offsetManager.setPrimaryOffset(member.offset);
+        offsetManager.setPrimaryOffset(currentStructBaseOffset + member.offset);
     }
     bool isSpecialType = (typeDef->type == DataType::KEY ||
         typeDef->type == DataType::ASSET ||
@@ -340,15 +414,26 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         break;
     }
     case DataType::ARRAY: {
-        uint32_t count;
-        if (secOffsetStruct) {
-            count = offsetManager.readPrimary<uint32_t>();
-        }
-        else {
-            count = offsetManager.readPrimary<uint32_t>();
-        }
+        uint32_t count = offsetManager.readPrimary<uint32_t>();
         valueStr = std::to_string(count);
         logMessage = fmt::format("parse_member_array({}, {})", member.name, valueStr);
+        logParse(logMessage);
+
+        if (count > 0 && !typeDef->targetType.empty()) {
+            auto targetStruct = catalog.getStruct(typeDef->targetType);
+            //size_t parentSize = parentStruct->getFixedSize();
+            offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset() + (count * targetStruct->getFixedSize())); // + parentSize
+            if (targetStruct) {
+                size_t currentOffset = offsetManager.getPrimaryOffset();
+                parseArrayStruct(typeDef->targetType, count, currentOffset, false);
+                offsetManager.setPrimaryOffset(currentOffset);
+                return;
+            }
+        }
+
+        if (xmlMode) {
+            currentXmlNode.append_child(member.name.c_str()).text().set(valueStr.c_str());
+        }
         break;
     }
     case DataType::NULLABLE: {
@@ -358,30 +443,40 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             if (targetStruct) {
                 bool previousSecOffsetStruct = secOffsetStruct;
                 size_t previousStructBaseOffset = currentStructBaseOffset;
-
                 secOffsetStruct = true;
                 currentStructBaseOffset = offsetManager.getPrimaryOffset() - sizeof(uint32_t);
-
-                //logMessage = fmt::format("parse_member_nullable({}, {})", member.name, "true");
-                //logParse(logMessage);
                 parseStruct(typeDef->targetType);
-
                 secOffsetStruct = previousSecOffsetStruct;
                 currentStructBaseOffset = previousStructBaseOffset;
-                offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset() + targetStruct->getFixedSize());
+
+                if (typeDef->type == DataType::NULLABLE) {
+                    offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset()); // + targetStruct->getFixedSize()
+                }
+
+                if (isArrayStruct) {
+                    offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset());
+                }
                 return;
             }
         }
-
-        valueStr = hasValue > 0 ? "true" : "false";
-        logMessage = fmt::format("parse_member_nullable({}, {})", member.name, valueStr);
+		else {
+			return;
+            //valueStr = hasValue > 0 ? "true" : "false";
+            //logMessage = fmt::format("parse_member_nullable({}, {})", member.name, valueStr);
+		}
         break;
     }
     case DataType::STRUCT: {
         //logMessage = fmt::format("parse_member_struct({}, {})", member.name, typeDef->targetType);
         //logParse(logMessage);
         //indentLevel++;
+        size_t currentOffset = offsetManager.getPrimaryOffset();
+        size_t previousBaseOffset = currentStructBaseOffset;
+        currentStructBaseOffset = currentOffset;
+
         parseStruct(typeDef->targetType);
+
+        currentStructBaseOffset = previousBaseOffset;
         return;
     }
     default: {
