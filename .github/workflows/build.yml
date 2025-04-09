@@ -1,4 +1,3 @@
-
 name: Build and Release
 
 on:
@@ -18,6 +17,7 @@ env:
   SOLUTION_FILE_PATH: recap_parser.sln
   BUILD_TYPE: Release
   CPP_STANDARD: 20
+  VCPKG_COMMIT: 501db0f17ef6df184fcdbfbe0f87cde2313b6ab1
 
 jobs:
   get-version:
@@ -88,7 +88,20 @@ jobs:
         configuration: [Debug, Release]
     steps:
     - uses: actions/checkout@v4
+      
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+        vcpkgDirectory: ${{ github.workspace }}/vcpkg
     
+    - name: Install dependencies with vcpkg
+      run: |
+        cd ${{ github.workspace }}/vcpkg
+        ./bootstrap-vcpkg.bat
+        ./vcpkg install pugixml:${{ matrix.platform }}-windows boost-program-options:${{ matrix.platform }}-windows boost-filesystem:${{ matrix.platform }}-windows
+        ./vcpkg integrate install
+      
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.3.1
       
@@ -96,9 +109,41 @@ jobs:
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: nuget restore ${{env.SOLUTION_FILE_PATH}}
       
+    - name: Update project for vcpkg
+      run: |
+        # Create a vcpkg-configuration.json file for the project
+        $vcpkgConfigContent = @"
+        {
+          "default-registry": {
+            "kind": "git",
+            "repository": "https://github.com/microsoft/vcpkg.git",
+            "baseline": "${{ env.VCPKG_COMMIT }}"
+          },
+          "registries": [],
+          "overlay-triplets": [],
+          "overlay-ports": []
+        }
+        "@
+        Set-Content -Path "vcpkg-configuration.json" -Value $vcpkgConfigContent
+        
+        # Create or update vcpkg.json
+        $vcpkgJsonContent = @"
+        {
+          "name": "recap-parser",
+          "version": "${{ needs.get-version.outputs.version }}",
+          "dependencies": [
+            "pugixml",
+            "boost-program-options",
+            "boost-filesystem"
+          ]
+        }
+        "@
+        Set-Content -Path "vcpkg.json" -Value $vcpkgJsonContent
+      
     - name: Build with C++20 support
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: msbuild /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:LanguageStandard=stdcpp20 ${{env.SOLUTION_FILE_PATH}}
+      run: |
+        msbuild /m /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:LanguageStandard=stdcpp20 /p:VcpkgEnabled=true /p:VcpkgManifestInstall=true /p:VcpkgAutoLink=true ${{env.SOLUTION_FILE_PATH}}
           
     - name: Prepare output directory
       run: |
@@ -108,7 +153,15 @@ jobs:
       run: |
         Copy-Item -Path "${{ matrix.platform }}\${{ matrix.configuration }}\recap_parser.exe" -Destination "bin_output\recap_parser.exe"
         Copy-Item -Path "LICENSE" -Destination "bin_output\" -ErrorAction SilentlyContinue
-        # Add more files here if needed
+        
+        # Copy the required DLLs
+        $dllPath = "${{ github.workspace }}/vcpkg/installed/${{ matrix.platform }}-windows/bin"
+        if (Test-Path $dllPath) {
+          Get-ChildItem -Path $dllPath -Filter "*.dll" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "bin_output\" -ErrorAction SilentlyContinue
+            Write-Host "Copied DLL: $($_.Name)"
+          }
+        }
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -126,7 +179,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-12 make cmake
+          sudo apt-get install -y g++-12 make cmake libboost-program-options-dev libboost-filesystem-dev libpugixml-dev
           
       - name: Setup CMake
         run: |
@@ -139,20 +192,43 @@ jobs:
           set(CMAKE_CXX_STANDARD_REQUIRED ON)
           set(CMAKE_CXX_COMPILER g++-12)
           
-          add_executable(recap_parser ../main.cpp ../catalog.cpp ../parser.cpp)
+          # Find required packages
+          find_package(Boost REQUIRED COMPONENTS program_options filesystem)
+          find_package(pugixml REQUIRED)
+          
+          # Include directories
+          include_directories(\${Boost_INCLUDE_DIRS})
+          
+          # Add executable
+          add_executable(recap_parser 
+            ../main.cpp 
+            ../catalog.cpp 
+            ../parser.cpp
+          )
+          
+          # Link libraries
+          target_link_libraries(recap_parser 
+            \${Boost_LIBRARIES}
+            pugixml::pugixml
+          )
           EOF
           
       - name: Build
         run: |
           cd build
           cmake .
-          make
+          make -j$(nproc)
           
       - name: Prepare output directory
         run: |
           mkdir -p bin_output
           cp build/recap_parser bin_output/
           cp LICENSE bin_output/ || echo "LICENSE file not found"
+          # Copy any needed shared libraries
+          mkdir -p bin_output/lib
+          for lib in $(ldd build/recap_parser | grep -oP '/usr/lib/.*?\.so[0-9.]*' | sort -u); do
+            cp $lib bin_output/lib/ 2>/dev/null || true
+          done
           
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
