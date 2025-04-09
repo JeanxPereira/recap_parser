@@ -1,10 +1,18 @@
+
 name: Build and Release
 
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
   SOLUTION_FILE_PATH: recap_parser.sln
@@ -12,26 +20,59 @@ env:
   CPP_STANDARD: 20
 
 jobs:
-  get-info:
+  get-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.extract_version.outputs.version }}
+      version: ${{ steps.determine_version.outputs.version }}
       date: ${{ steps.vars.outputs.date }}
       shorthash: ${{ steps.vars.outputs.shorthash }}
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    - name: Extract version from version.txt
-      id: extract_version
+        fetch-tags: true
+        
+    - name: Determine Version
+      id: determine_version
       run: |
-        if [ -f "version.txt" ]; then
-          echo "version=$(cat version.txt)" >> $GITHUB_OUTPUT
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          VERSION="${{ github.ref }}"
+          VERSION="${VERSION#refs/tags/}"
+          echo "Using tagged version: $VERSION"
         else
-          echo "version=1.0.0" >> $GITHUB_OUTPUT
-          echo "1.0.0" > version.txt
-          echo "Created version.txt with default version 1.0.0"
+          git fetch --tags
+          LATEST_TAG=$(git tag -l "v*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No standard version tags found. Starting with v0.0.1"
+            VERSION="v0.0.1"
+          else
+            echo "Last valid tag: $LATEST_TAG"
+            
+            # Split version into components
+            IFS='.' read -r -a components <<< "${LATEST_TAG#v}"
+            MAJOR="${components[0]}"
+            MINOR="${components[1]}"
+            PATCH="${components[2]}"
+            
+            # Increment patch version
+            PATCH=$((PATCH + 1))
+            if [ "$PATCH" -gt 9 ]; then
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            fi
+            if [ "$MINOR" -gt 9 ]; then
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+            fi
+            
+            VERSION="v$MAJOR.$MINOR.$PATCH"
+          fi
         fi
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
+        
     - name: Get date and git hash
       id: vars
       run: |
@@ -39,12 +80,12 @@ jobs:
         echo "shorthash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
   build-windows:
-    needs: get-info
+    needs: get-version
     runs-on: windows-latest
     strategy:
       matrix:
         platform: [x64]
-        configuration: [Debug]
+        configuration: [Debug, Release]
     steps:
     - uses: actions/checkout@v4
     
@@ -67,15 +108,17 @@ jobs:
       run: |
         Copy-Item -Path "${{ matrix.platform }}\${{ matrix.configuration }}\recap_parser.exe" -Destination "bin_output\recap_parser.exe"
         Copy-Item -Path "LICENSE" -Destination "bin_output\" -ErrorAction SilentlyContinue
+        # Add more files here if needed
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: recap_parser-${{ needs.get-info.outputs.version }}-win-${{ matrix.platform }}-${{ matrix.configuration }}
+        name: recap_parser-${{ needs.get-version.outputs.version }}-win-${{ matrix.platform }}-${{ matrix.configuration }}
         path: bin_output/*
+        retention-days: 30
 
   build-ubuntu:
-      needs: get-info
+      needs: get-version
       runs-on: ubuntu-latest
       steps:
       - uses: actions/checkout@v4
@@ -83,7 +126,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ make cmake
+          sudo apt-get install -y g++-12 make cmake
           
       - name: Setup CMake
         run: |
@@ -93,7 +136,10 @@ jobs:
           cmake_minimum_required(VERSION 3.10)
           project(recap_parser)
           set(CMAKE_CXX_STANDARD 20)
-          add_executable(recap_parser ../main.cpp ../catalog.cpp)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          set(CMAKE_CXX_COMPILER g++-12)
+          
+          add_executable(recap_parser ../main.cpp ../catalog.cpp ../parser.cpp)
           EOF
           
       - name: Build
@@ -106,19 +152,49 @@ jobs:
         run: |
           mkdir -p bin_output
           cp build/recap_parser bin_output/
+          cp LICENSE bin_output/ || echo "LICENSE file not found"
           
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
+          name: recap_parser-${{ needs.get-version.outputs.version }}-linux-x64
           path: bin_output/*
+          retention-days: 30
+
+  tag-version:
+    name: Tag Version
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [get-version, build-windows, build-ubuntu]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      
+      - name: Tag Version
+        run: |
+          # Only create tag if we're on the main branch and it's not already a tag push
+          if [[ "${{ github.ref }}" != refs/tags/* ]]; then
+            git config --global user.name 'GitHub Actions'
+            git config --global user.email 'actions@github.com'
+            git tag ${{ needs.get-version.outputs.version }}
+            git push origin ${{ needs.get-version.outputs.version }}
+            echo "Created and pushed tag: ${{ needs.get-version.outputs.version }}"
+          else
+            echo "This is already a tag push, skipping tag creation"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   create-release:
-    needs: [get-info, build-windows, build-ubuntu]
+    needs: [get-version, build-windows, build-ubuntu]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: success() && (startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && github.event_name != 'pull_request'))
     steps:
       - uses: actions/checkout@v4
       
@@ -135,16 +211,18 @@ jobs:
           done
           
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: v${{ needs.get-info.outputs.version }}
-          name: Recap Parser v${{ needs.get-info.outputs.version }}
+          tag_name: ${{ needs.get-version.outputs.version }}
+          name: Recap Parser ${{ needs.get-version.outputs.version }}
           draft: false
           prerelease: false
+          make_latest: true
           body: |
-            Release of Recap Parser v${{ needs.get-info.outputs.version }}
+            Recap Parser ${{ needs.get-version.outputs.version }}
             
-            Date: ${{ needs.get-info.outputs.date }}
-            Commit: ${{ needs.get-info.outputs.shorthash }}
+            Date: ${{ needs.get-version.outputs.date }}
+            Commit: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+            Build: ${{ github.run_number }}
           files: artifacts/*.zip
