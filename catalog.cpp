@@ -69,11 +69,60 @@ void Catalog::initialize() {
                  cGameObjectGfxStateData->add("prefab", "asset", 48);
                  cGameObjectGfxStateData->add("animation", "key", 44);
                  cGameObjectGfxStateData->add("animationLoops", "bool", 52);
-        registerArrayType("state");
-        cGameObjectGfxStates->add("state", "array", cGameObjectGfxStateData, 4);
-
+            //registerArrayType("state");
+    cGameObjectGfxStates->add("state", "array", cGameObjectGfxStateData, 4);
     registerNullableType("gfxStates");
-    noun->add("gfxStates", "nullable", cGameObjectGfxStates, 132);
+
+    noun->add("gfxStates", "nullable", cGameObjectGfxStates, 144);
+
+    auto cNewGfxState = add_struct("cNewGfxState", 40);
+            cNewGfxState->add("prefab", "asset", 0);
+            cNewGfxState->add("model", "key", 16);
+            cNewGfxState->add("animation", "key", 32);
+    registerNullableType("cNewGfxState");
+
+    auto cDoorDef = add_struct("doorDef", 24);
+        cDoorDef->add("graphicsState_open", "nullable", cNewGfxState, 0);
+        cDoorDef->add("graphicsState_opening", "nullable", cNewGfxState, 4);
+        cDoorDef->add("graphicsState_closed", "nullable", cNewGfxState, 8);
+        cDoorDef->add("graphicsState_closing", "nullable", cNewGfxState, 12);
+        cDoorDef->add("clickToOpen", "bool", 16);
+        cDoorDef->add("clickToClose", "bool", 17);
+        cDoorDef->add("initialState", "enum", 20);
+    registerNullableType("doorDef");
+    noun->add("doorDef", "nullable", cDoorDef, 136);
+
+    auto cSwitchDef = add_struct("switchDef", 12);
+         cSwitchDef->add("graphicsState_unpressed", "nullable", cNewGfxState, 0);
+         cSwitchDef->add("graphicsState_pressing", "nullable", cNewGfxState, 4);
+         cSwitchDef->add("graphicsState_pressed", "nullable", cNewGfxState, 8);
+    registerNullableType("switchDef");
+    noun->add("switchDef", "nullable", cSwitchDef, 140);
+
+    auto cPressureSwitchDef = add_struct("pressureSwitchDef", 40);
+         cPressureSwitchDef->add("graphicsState_unpressed", "nullable", cNewGfxState, 0);
+         cPressureSwitchDef->add("graphicsState_pressing", "nullable", cNewGfxState, 4);
+         cPressureSwitchDef->add("graphicsState_pressed", "nullable", cNewGfxState, 8);
+         auto cVolumeDef = add_struct("volume");
+              cVolumeDef->add("shape", "enum", 0);
+              cVolumeDef->add("boxWidth", "float", 4);
+              cVolumeDef->add("boxLength", "float", 8);
+              cVolumeDef->add("boxHeight", "float", 12);
+              cVolumeDef->add("sphereRadius", "float", 16);
+              cVolumeDef->add("capsuleHeight", "float", 20);
+              cVolumeDef->add("capsuleRadius", "float", 24);
+         addType("struct:volume", DataType::STRUCT, 28, "volume");
+         cPressureSwitchDef->add("volume", "struct:volume", 28);
+    registerNullableType("pressureSwitchDef");
+    noun->add("pressureSwitchDef", "nullable", cPressureSwitchDef, 144);
+
+    auto CrystalDef = add_struct("crystalDef", 24);
+         CrystalDef->add("modifier", "key", 0);
+         CrystalDef->add("type", "enum", 4);
+         CrystalDef->add("rarity", "enum", 16);
+    registerNullableType("crystalDef");
+    noun->add("crystalDef", "nullable", CrystalDef, 148);
+
     noun->add("assetId", "uint64_t", 152);
     noun->add("npcClassData", "asset", 160);
     noun->add("playerClassData", "asset", 164);
@@ -98,7 +147,7 @@ void Catalog::initialize() {
     registerNullableType("creatureThumbnailData");
     noun->add("creatureThumbnailData", "nullable", cThumbnailCaptureParameters, 172);
 
-    noun->add("eliteAssetIds", "array", 172);
+    noun->addArray("eliteAssetIds", "uint64_t", 172);
     noun->add("physicsType", "enum", 184);
     noun->add("density", "float", 188);
     noun->add("physicsKey", "key", 204);
@@ -149,6 +198,39 @@ void Catalog::initialize() {
          TriggerVolumeDef->add("serverOnly", "bool", 120);
     registerNullableType("triggerVolume");
 
+    noun->add("gravityData", "asset", 308);
+
+    noun->add("triggerVolume", "nullable", TriggerVolumeDef, 292);
+
+    auto ProjectileDef = add_struct("projectile", 12);
+         auto CollisionVolumeDef = add_struct("creatureCollisionVolume", 20);
+              CollisionVolumeDef->add("shape", "enum", 0);
+              CollisionVolumeDef->add("boxWidth", "float", 4);
+              CollisionVolumeDef->add("boxLength", "float", 8);
+              CollisionVolumeDef->add("boxHeight", "float", 12);
+              CollisionVolumeDef->add("sphereRadius", "float", 16);
+         registerNullableType("creatureCollisionVolume");
+
+         ProjectileDef->add("creatureCollisionVolume", "nullable", CollisionVolumeDef, 0);
+         ProjectileDef->add("otherCollisionVolume", "nullable", CollisionVolumeDef, 4);
+         ProjectileDef->add("targetType", "enum", 8);
+    registerNullableType("projectile");
+    noun->add("projectile", "nullable", ProjectileDef, 296);
+
+    auto OrbitDef = add_struct("orbit", 12);
+         OrbitDef->add("orbitHeight", "float", 0);
+         OrbitDef->add("orbitRadius", "float", 4);
+         OrbitDef->add("orbitSpeed", "float", 8);
+    registerNullableType("orbit");
+    noun->add("orbit", "nullable", OrbitDef, 300);
+
+    auto LocomotionTuning = add_struct("locomotionTuning", 12);
+         LocomotionTuning->add("acceleration", "float", 0);
+         LocomotionTuning->add("deceleration", "float", 4);
+         LocomotionTuning->add("turnRate", "float", 8);
+    registerNullableType("locomotionTuning");
+    noun->add("locomotionTuning", "nullable", LocomotionTuning, 304);
+
     auto componentData = add_struct("SharedComponentData", 40);
         auto AudioTriggerDef = add_struct("audioTrigger", 32);
              AudioTriggerDef->add("type", "enum", 0);
@@ -169,12 +251,13 @@ void Catalog::initialize() {
         registerNullableType("teleporter");
 
         auto EventListenerDef = add_struct("eventListenerDef", 8);
-             EventListenerDef->add("listener", "array", 0);
+             EventListenerDef->add("listenerKey", "uint32_t", 0);
              auto EventListenerData = add_struct("listener", 40);
                   EventListenerData->add("event", "key", 0);
                   EventListenerData->add("callback", "key", 28);
                   EventListenerData->add("luaCallback", "char*", 36);
-             registerArrayType("listener");
+             //registerArrayType("listener");
+             EventListenerDef->add("listener", "array", EventListenerData, 4);
         registerNullableType("eventListenerDef");
 
         auto SpawnPointDef = add_struct("spawnPointDef", 8);
@@ -229,16 +312,6 @@ void Catalog::initialize() {
     addType("struct:SharedComponentData", DataType::STRUCT, 40, "SharedComponentData");
     noun->add("SharedComponentData", "struct:SharedComponentData", 252);
 
-    noun->add("triggerVolume", "nullable", TriggerVolumeDef, 292);
-
-    auto LocomotionTuning = add_struct("locomotionTuning", 12);
-    LocomotionTuning->add("acceleration", "float", 0);
-    LocomotionTuning->add("deceleration", "float", 4);
-    LocomotionTuning->add("turnRate", "float", 8);
-    registerNullableType("locomotionTuning");
-    noun->add("locomotionTuning", "nullable", LocomotionTuning, 304);
-
-    noun->add("gravityData", "asset", 308);
     noun->add("isFlora", "bool", 328);
     noun->add("isMineral", "bool", 329);
     noun->add("isCreature", "bool", 330);

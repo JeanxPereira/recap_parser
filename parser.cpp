@@ -3,6 +3,7 @@
 #include <cstring>
 #include <filesystem>
 
+
 bool Parser::parse() {
     fileStream.open(filename, std::ios::binary);
     if (!fileStream) {
@@ -45,60 +46,6 @@ bool Parser::parse() {
 
     fileStream.close();
     return true;
-}
-
-void Parser::parseArrayStruct(const std::string& arrayType, size_t count, size_t startOffset, bool updateSecondaryOffset) {
-    auto targetStruct = catalog.getStruct(arrayType);
-    if (!targetStruct) {
-        std::cerr << "Unknown struct type for array: " << arrayType << std::endl;
-        return;
-    }
-
-    size_t structSize = targetStruct->getFixedSize();
-
-    if (arrayType == "state" && structSize != 56) {
-        structSize = 56;
-    }
-
-    bool originalSecOffsetStruct = secOffsetStruct;
-    bool originalSecOffsetStructArray = secOffsetStructArray;
-    isArrayStruct = true;
-    size_t originalStructBaseOffset = currentStructBaseOffset;
-
-    secOffsetStructArray = true;
-
-    for (size_t i = 0; i < count; i++) {
-        size_t elementOffset = startOffset + (i * structSize);
-
-        pugi::xml_node prevXmlNode;
-        if (xmlMode) {
-            prevXmlNode = currentXmlNode;
-            currentXmlNode = currentXmlNode.append_child(arrayType.c_str());
-        }
-       
-        logParse(fmt::format("parse_struct({})", arrayType));
-
-        indentLevel++;
-
-        size_t savedPrimaryOffset = offsetManager.getPrimaryOffset();
-        currentStructBaseOffset = elementOffset;
-
-        for (const auto& member : targetStruct->getMembers()) {
-            parseMember(member, targetStruct);
-        }
-
-        indentLevel--;
-
-        offsetManager.setPrimaryOffset(savedPrimaryOffset);
-
-        if (xmlMode) {
-            currentXmlNode = prevXmlNode;
-        }
-    }
-
-    secOffsetStruct = originalSecOffsetStruct;
-    secOffsetStructArray = originalSecOffsetStructArray;
-    currentStructBaseOffset = originalStructBaseOffset;
 }
 
 void Parser::parseStruct(const std::string& structName) {
@@ -170,10 +117,51 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         return;
     }
 
-    if (secOffsetStruct) {
+    if (member.typeName == "array") {
+        size_t originalOffset = offsetManager.getPrimaryOffset();
         offsetManager.setPrimaryOffset(currentStructBaseOffset + member.offset);
+        uint32_t hasValue = offsetManager.readPrimary<uint32_t>();
+        if (hasValue != 0) {
+            offsetManager.advancePrimary(sizeof(uint32_t));
+            uint32_t count = offsetManager.readPrimary<uint32_t>();
+
+            logParse(fmt::format("parse_member_array({}, {})", member.name, count));
+            indentLevel++;
+
+            pugi::xml_node arrayNode;
+            pugi::xml_node originalNode = currentXmlNode;
+            if (xmlMode) {
+                arrayNode = currentXmlNode.append_child(member.name.c_str());
+            }
+
+            for (size_t i = 0; i < count; i++) {
+                size_t elementSize = 0;
+                const TypeDefinition* typeDef = catalog.getType(member.elementType);
+                if (typeDef) {
+                    elementSize = typeDef->size;
+                }
+
+                StructMember elementMember("entry", member.elementType, offsetManager.getSecondaryOffset(), true);
+
+                if (xmlMode) {
+                    currentXmlNode = arrayNode.append_child("entry");
+                }
+                parseMember(elementMember, parentStruct);
+                offsetManager.advanceSecondary(elementSize);
+
+                if (xmlMode) {
+                    currentXmlNode = originalNode;
+                }
+            }
+
+            indentLevel--;
+        }
+
+        offsetManager.setPrimaryOffset(originalOffset);
+        return;
     }
-    else if (secOffsetStructArray) {
+
+    if (secOffsetStruct) {
         offsetManager.setPrimaryOffset(currentStructBaseOffset + member.offset);
     }
     else if (member.useSecondaryOffset) {
@@ -230,14 +218,14 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
     case DataType::VECTOR2: {
         float x;
         float y;
-		if (secOffsetStruct) {
-			x = offsetManager.readPrimary<float>();
-			y = offsetManager.readPrimary<float>();
-		}
-		else {
-			x = offsetManager.readPrimary<float>();
-			y = offsetManager.readPrimary<float>();
-		}
+        if (secOffsetStruct) {
+            x = offsetManager.readPrimary<float>();
+            y = offsetManager.readPrimary<float>();
+        }
+        else {
+            x = offsetManager.readPrimary<float>();
+            y = offsetManager.readPrimary<float>();
+        }
         valueStr = fmt::format("x: {:.5f}, y: {:.5f}", x, y);
         logMessage = fmt::format("parse_member_vector2({}, {})", member.name, valueStr);
 
@@ -252,16 +240,16 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         float x;
         float y;
         float z;
-		if (secOffsetStruct) {
-			x = offsetManager.readPrimary<float>();
-			y = offsetManager.readPrimary<float>();
-			z = offsetManager.readPrimary<float>();
-		}
-		else {
-			x = offsetManager.readPrimary<float>();
-			y = offsetManager.readPrimary<float>();
-			z = offsetManager.readPrimary<float>();
-		}
+        if (secOffsetStruct) {
+            x = offsetManager.readPrimary<float>();
+            y = offsetManager.readPrimary<float>();
+            z = offsetManager.readPrimary<float>();
+        }
+        else {
+            x = offsetManager.readPrimary<float>();
+            y = offsetManager.readPrimary<float>();
+            z = offsetManager.readPrimary<float>();
+        }
         valueStr = fmt::format("x: {:.f}, y: {:.5f}, z: {:.5f}", x, y, z);
         logMessage = fmt::format("parse_member_vec3({}, {})", member.name, valueStr);
 
@@ -278,18 +266,18 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         float x;
         float y;
         float z;
-		if (secOffsetStruct) {
-			w = offsetManager.readPrimary<float>();
-			x = offsetManager.readPrimary<float>();
-			y = offsetManager.readPrimary<float>();
-			z = offsetManager.readPrimary<float>();
-		}
-		else {
-			w = offsetManager.readPrimary<float>();
-			x = offsetManager.readPrimary<float>();
-			y = offsetManager.readPrimary<float>();
-			z = offsetManager.readPrimary<float>();
-		}
+        if (secOffsetStruct) {
+            w = offsetManager.readPrimary<float>();
+            x = offsetManager.readPrimary<float>();
+            y = offsetManager.readPrimary<float>();
+            z = offsetManager.readPrimary<float>();
+        }
+        else {
+            w = offsetManager.readPrimary<float>();
+            x = offsetManager.readPrimary<float>();
+            y = offsetManager.readPrimary<float>();
+            z = offsetManager.readPrimary<float>();
+        }
         valueStr = fmt::format("w: {:.5f}, x: {:.5f}, y: {:.5f}, z: {:.5f}", w, x, y, z);
         logMessage = fmt::format("parse_member_quaternion({}, {})", member.name, valueStr);
 
@@ -355,85 +343,62 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
     }
     case DataType::ENUM: {
         uint32_t value;
-		if (secOffsetStruct) {
-			value = offsetManager.readPrimary<uint32_t>();
-		}
-		else {
-			value = offsetManager.readPrimary<uint32_t>();
-		}
+        if (secOffsetStruct) {
+            value = offsetManager.readPrimary<uint32_t>();
+        }
+        else {
+            value = offsetManager.readPrimary<uint32_t>();
+        }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_enum({}, {})", member.name, valueStr);
         break;
     }
     case DataType::UINT8: {
         uint8_t value;
-		if (secOffsetStruct) {
-			value = offsetManager.readPrimary<uint8_t>();
-		}
-		else {
-			value = offsetManager.readPrimary<uint8_t>();
-		}
+        if (secOffsetStruct) {
+            value = offsetManager.readPrimary<uint8_t>();
+        }
+        else {
+            value = offsetManager.readPrimary<uint8_t>();
+        }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_uint8_t({}, {})", member.name, valueStr);
         break;
     }
     case DataType::UINT16: {
         uint16_t value;
-		if (secOffsetStruct) {
-			value = offsetManager.readPrimary<uint16_t>();
-		}
-		else {
-			value = offsetManager.readPrimary<uint16_t>();
-		}
+        if (secOffsetStruct) {
+            value = offsetManager.readPrimary<uint16_t>();
+        }
+        else {
+            value = offsetManager.readPrimary<uint16_t>();
+        }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_uint16_t({}, {})", member.name, valueStr);
         break;
     }
     case DataType::UINT32: {
         uint32_t value;
-		if (secOffsetStruct) {
-			value = offsetManager.readPrimary<uint32_t>();
-		}
-		else {
-			value = offsetManager.readPrimary<uint32_t>();
-		}
+        if (secOffsetStruct) {
+            value = offsetManager.readPrimary<uint32_t>();
+        }
+        else {
+            value = offsetManager.readPrimary<uint32_t>();
+        }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_uint32_t({}, {})", member.name, valueStr);
         break;
     }
     case DataType::UINT64: {
         uint64_t value;
-		if (secOffsetStruct) {
-			value = offsetManager.readPrimary<uint64_t>();
-		}
-		else {
-			value = offsetManager.readPrimary<uint64_t>();
+        if (secOffsetStruct) {
+            value = offsetManager.readPrimary<uint64_t>();
+        }
+        else {
+            value = offsetManager.readPrimary<uint64_t>();
         }
         valueStr = fmt::format("0x{:X}", value);
         logMessage = fmt::format("parse_member_uint64_t({}, {})", member.name, valueStr);
-        break;
-    }
-    case DataType::ARRAY: {
-        uint32_t count = offsetManager.readPrimary<uint32_t>();
-        valueStr = std::to_string(count);
-        logMessage = fmt::format("parse_member_array({}, {})", member.name, valueStr);
-        logParse(logMessage);
-
-        if (count > 0 && !typeDef->targetType.empty()) {
-            auto targetStruct = catalog.getStruct(typeDef->targetType);
-            //size_t parentSize = parentStruct->getFixedSize();
-            offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset() + (count * targetStruct->getFixedSize())); // + parentSize
-            if (targetStruct) {
-                size_t currentOffset = offsetManager.getPrimaryOffset();
-                parseArrayStruct(typeDef->targetType, count, currentOffset, false);
-                offsetManager.setPrimaryOffset(currentOffset);
-                return;
-            }
-        }
-
-        if (xmlMode) {
-            currentXmlNode.append_child(member.name.c_str()).text().set(valueStr.c_str());
-        }
         break;
     }
     case DataType::NULLABLE: {
@@ -452,18 +417,14 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
                 if (typeDef->type == DataType::NULLABLE) {
                     offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset()); // + targetStruct->getFixedSize()
                 }
-
-                if (isArrayStruct) {
-                    offsetManager.setSecondaryOffset(offsetManager.getSecondaryOffset());
-                }
                 return;
             }
         }
-		else {
-			return;
+        else {
+            return;
             //valueStr = hasValue > 0 ? "true" : "false";
             //logMessage = fmt::format("parse_member_nullable({}, {})", member.name, valueStr);
-		}
+        }
         break;
     }
     case DataType::STRUCT: {

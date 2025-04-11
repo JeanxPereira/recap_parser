@@ -140,9 +140,16 @@ struct StructMember {
     std::string typeName;
     size_t offset;
     bool useSecondaryOffset;
+    std::string elementType;
 
     StructMember(const std::string& name, const std::string& typeName, size_t offset, bool useSecondaryOffset = false)
-        : name(name), typeName(typeName), offset(offset), useSecondaryOffset(useSecondaryOffset) {
+        : name(name), typeName(typeName), offset(offset), useSecondaryOffset(useSecondaryOffset), elementType("") {
+    }
+
+    StructMember(const std::string& name, const std::string& typeName, const std::string& elementType,
+        size_t offset, bool useSecondaryOffset = false)
+        : name(name), typeName(typeName), offset(offset), useSecondaryOffset(useSecondaryOffset),
+        elementType(elementType) {
     }
 };
 
@@ -170,15 +177,17 @@ public:
         return this;
     }
 
+    StructDefinition* addArray(const std::string& name, const std::string& elementType, size_t offset,
+        bool useSecondaryOffset = false) {
+        members.emplace_back(name, "array", elementType, offset, useSecondaryOffset);
+        return this;
+    }
+
     StructDefinition* add(const std::string& name, const std::string& typeName,
         std::shared_ptr<StructDefinition> targetStruct, size_t offset,
         bool useSecondaryOffset = false) {
         if (typeName == "nullable") {
             std::string specificType = "nullable:" + targetStruct->getName();
-            members.emplace_back(name, specificType, offset, useSecondaryOffset);
-        }
-        else if (typeName == "array") {
-            std::string specificType = "array:" + targetStruct->getName();
             members.emplace_back(name, specificType, offset, useSecondaryOffset);
         }
         else {
@@ -215,6 +224,11 @@ public:
         return &types.at(name);
     }
 
+    TypeDefinition* addArrayType(const std::string& name, const std::string& elementType, size_t size) {
+        std::string arrayTypeName = "array:" + elementType;
+        return addType(arrayTypeName, DataType::ARRAY, size, elementType);
+    }
+
     TypeDefinition* addType(const std::string& name, DataType type, size_t size, const std::string& targetType) {
         types.emplace(name, TypeDefinition(name, type, size, targetType));
         return &types.at(name);
@@ -238,13 +252,6 @@ public:
         std::string nullableTypeName = "nullable:" + targetStructName;
         if (types.find(nullableTypeName) == types.end()) {
             addType(nullableTypeName, DataType::NULLABLE, 4, targetStructName);
-        }
-    }
-
-    void registerArrayType(const std::string& targetStructName) {
-        std::string arrayTypeName = "array:" + targetStructName;
-        if (types.find(arrayTypeName) == types.end()) {
-            addType(arrayTypeName, DataType::ARRAY, 4, targetStructName);
         }
     }
 
@@ -296,16 +303,10 @@ private:
     std::string filename;
 
     bool secOffsetStruct = false;
-    bool secOffsetStructArray = false;
-    bool isArrayStruct = false;
     std::stack<size_t> structOffsetStack;
-    std::stack<size_t> arrayBaseStack;
 
     size_t currentStructBaseOffset = 0;
     std::stack<size_t> structBaseOffsetStack;
-
-    bool processingArrayElement = false;
-    size_t arrayElementBaseOffset = 0;
 
     bool debugMode;
     bool xmlMode;
@@ -332,8 +333,6 @@ private:
 
     void parseStruct(const std::string& structName);
     void parseMember(const StructMember& member, const std::shared_ptr<StructDefinition>& parentStruct);
-    void parseArrayStruct(const std::string& arrayType, size_t count, size_t startOffset, bool updateSecondaryOffset = false);
-
 public:
     Parser(const Catalog& catalog, const std::string& filename, bool debugMode = false, bool xmlMode = false)
         : catalog(catalog), offsetManager(fileStream), filename(filename), debugMode(debugMode), xmlMode(xmlMode) {
