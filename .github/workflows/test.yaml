@@ -1,0 +1,91 @@
+name: Test Dependencies
+
+on:
+  workflow_dispatch:
+
+env:
+  SOLUTION_FILE_PATH: recap_parser.sln
+  VCPKG_COMMIT: 501db0f17ef6df184fcdbfbe0f87cde2313b6ab1
+
+jobs:
+  test-windows-deps:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+        vcpkgDirectory: ${{ github.workspace }}/vcpkg
+    
+    - name: Install dependencies with vcpkg
+      run: |
+        cd ${{ github.workspace }}/vcpkg
+        ./bootstrap-vcpkg.bat
+        ./vcpkg install pugixml:x64-windows boost-program-options:x64-windows boost-filesystem:x64-windows
+        ./vcpkg list
+      
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.3.1
+      
+    - name: Test includes
+      run: |
+        Write-Host "Testing include paths..."
+        $includeDir = "${{ github.workspace }}/vcpkg/installed/x64-windows/include"
+        
+        $files = @(
+          "$includeDir/pugixml.hpp",
+          "$includeDir/boost/program_options.hpp",
+          "$includeDir/boost/filesystem.hpp"
+        )
+        
+        $allFound = $true
+        foreach ($file in $files) {
+          if (Test-Path $file) {
+            Write-Host "Found: $file" -ForegroundColor Green
+          } else {
+            Write-Host "Missing: $file" -ForegroundColor Red
+            $allFound = $false
+          }
+        }
+        
+        if (-not $allFound) {
+          Write-Host "Some dependencies are missing!" -ForegroundColor Red
+          exit 1
+        }
+
+  test-linux-deps:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++-12 make cmake libboost-program-options-dev libboost-filesystem-dev libpugixml-dev
+      
+    - name: Test includes
+      run: |
+        echo "Testing include paths..."
+        
+        FILES=(
+          "/usr/include/pugixml.hpp"
+          "/usr/include/boost/program_options.hpp"
+          "/usr/include/boost/filesystem.hpp"
+        )
+        
+        ALL_FOUND=true
+        for FILE in "${FILES[@]}"; do
+          if [ -f "$FILE" ]; then
+            echo "Found: $FILE"
+          else
+            echo "Missing: $FILE"
+            ALL_FOUND=false
+          fi
+        done
+        
+        if [ "$ALL_FOUND" = false ]; then
+          echo "Some dependencies are missing!"
+          exit 1
+        fi
