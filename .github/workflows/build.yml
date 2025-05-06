@@ -85,7 +85,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y g++ make cmake libboost-all-dev
-            
+        
     - name: Setup CMake
       run: |
         mkdir -p build
@@ -119,3 +119,39 @@ jobs:
       with:
         name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
         path: bin_output/*
+
+  create-release:
+    needs: [get-info, build-windows, build-ubuntu]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          
+      - name: Prepare release assets
+        run: |
+          cd artifacts
+          for dir in */; do
+            (cd "$dir" && zip -r "../${dir%/}.zip" .)
+          done
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: v${{ needs.get-info.outputs.version }}
+          name: Recap Parser v${{ needs.get-info.outputs.version }}
+          draft: false
+          prerelease: false
+          body: |
+            Release of Recap Parser v${{ needs.get-info.outputs.version }}
+            
+            Date: ${{ needs.get-info.outputs.date }}
+            Commit: ${{ needs.get-info.outputs.shorthash }}
+          files: artifacts/*.zip
