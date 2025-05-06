@@ -84,8 +84,7 @@ jobs:
         set VCPKG_ROOT=%CD%\vcpkg
         %VCPKG_ROOT%\vcpkg integrate install
         
-        :: Configurar todas as opções necessárias para linkagem estática
-        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows-static /p:RuntimeLibrary=MultiThreaded /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE" /p:UseStaticMFC=true
+        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows-static /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE"
 
     - name: Upload Windows build artifacts
       uses: actions/upload-artifact@v4
