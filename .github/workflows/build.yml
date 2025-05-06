@@ -51,16 +51,32 @@ jobs:
       run: |
         git clone https://github.com/Microsoft/vcpkg.git
         cd vcpkg
-        # Use a more recent commit
         git checkout master
         .\bootstrap-vcpkg.bat
+
+    - name: Setup vcpkg binary caching
+      run: |
+        echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/vcpkg_binary_cache,readwrite" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        New-Item -Path "${{ github.workspace }}/vcpkg_binary_cache" -ItemType Directory -Force
+
+    - name: Cache vcpkg binary cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/vcpkg_binary_cache
+        key: ${{ runner.os }}-vcpkg-binaries-${{ hashFiles('vcpkg.json') }}
+        restore-keys: ${{ runner.os }}-vcpkg-binaries-
 
     - name: Cache vcpkg packages
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}/vcpkg_installed
-        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
-        restore-keys: ${{ runner.os }}-vcpkg-
+        path: |
+          ${{ github.workspace }}/vcpkg/installed
+          ${{ github.workspace }}/vcpkg/packages
+          ${{ github.workspace }}/vcpkg_installed
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-${{ hashFiles('vcpkg-configuration.json', '.vcpkg-root', 'vcpkg.json') }}
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-
+          ${{ runner.os }}-vcpkg-
 
     - name: Build with MSBuild
       shell: cmd
@@ -84,23 +100,43 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y g++ make cmake libboost-all-dev
-        
+        sudo apt-get install -y g++ make cmake libboost-all-dev libpugixml-dev libfmt-dev
+
+    - name: Cache compiled objects
+      uses: actions/cache@v4
+      with:
+        path: build
+        key: ${{ runner.os }}-build-${{ hashFiles('**/*.cpp', '**/*.h') }}
+        restore-keys: |
+          ${{ runner.os }}-build-
+
     - name: Setup CMake
       run: |
         mkdir -p build
         cd build
         cat > CMakeLists.txt << EOF
-        cmake_minimum_required(VERSION 3.10)
+        cmake_minimum_required(VERSION 3.14)
         project(recap_parser)
         set(CMAKE_CXX_STANDARD 20)
         
-        # Add Boost
-        find_package(Boost REQUIRED COMPONENTS program_options)
-        include_directories(${Boost_INCLUDE_DIRS})
+        # Find required packages
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(PUGIXML REQUIRED pugixml)
+        find_package(Boost REQUIRED COMPONENTS program_options filesystem)
+        find_package(fmt REQUIRED)
         
-        add_executable(recap_parser ../main.cpp ../catalog.cpp)
-        target_link_libraries(recap_parser ${Boost_LIBRARIES})
+        add_executable(recap_parser ../main.cpp ../catalog.cpp ../parser.cpp)
+        
+        target_include_directories(recap_parser PRIVATE
+          ${PUGIXML_INCLUDE_DIRS}
+          ${Boost_INCLUDE_DIRS}
+        )
+        
+        target_link_libraries(recap_parser PRIVATE
+          ${PUGIXML_LIBRARIES}
+          ${Boost_LIBRARIES}
+          fmt::fmt
+        )
         EOF
         
     - name: Build
