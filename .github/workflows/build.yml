@@ -5,7 +5,6 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
 
 env:
   SOLUTION_FILE_PATH: recap_parser.sln
@@ -84,13 +83,14 @@ jobs:
       run: |
         set VCPKG_ROOT=%CD%\vcpkg
         %VCPKG_ROOT%\vcpkg integrate install
-        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE"
+        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows-static /p:RuntimeLibrary=MultiThreaded /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE"
 
     - name: Upload Windows build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: recap-parser-windows
-        path: x64/Release/recap_parser.exe
+        path: |
+          x64/Release/recap_parser.exe
 
   build-ubuntu:
     needs: get-info
@@ -125,6 +125,9 @@ jobs:
         pkg_check_modules(PUGIXML REQUIRED pugixml)
         find_package(Boost REQUIRED COMPONENTS program_options filesystem)
         find_package(fmt REQUIRED)
+        
+        # Adicionar opção para linkagem estática
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
         
         add_executable(recap_parser ../main.cpp ../catalog.cpp ../parser.cpp)
         
