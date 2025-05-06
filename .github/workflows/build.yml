@@ -1,0 +1,113 @@
+ame: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  SOLUTION_FILE_PATH: recap_parser.sln
+  BUILD_TYPE: Release
+  CPP_STANDARD: 20
+
+jobs:
+  get-info:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+      date: ${{ steps.vars.outputs.date }}
+      shorthash: ${{ steps.vars.outputs.shorthash }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Extract version from version.txt
+      id: extract_version
+      run: |
+        if [ -f "version.txt" ]; then
+          echo "version=$(cat version.txt)" >> $GITHUB_OUTPUT
+        else
+          echo "version=1.0.0" >> $GITHUB_OUTPUT
+          echo "1.0.0" > version.txt
+          echo "Created version.txt with default version 1.0.0"
+        fi
+    - name: Get date and git hash
+      id: vars
+      run: |
+        echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+        echo "shorthash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1.3
+
+    - name: Clone vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        git checkout 501db0f17ef6df184fcdbfbe0f87cde2313b6ab1
+        .\bootstrap-vcpkg.bat
+
+    - name: Cache vcpkg packages
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/vcpkg_installed
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+        restore-keys: ${{ runner.os }}-vcpkg-
+
+    - name: Build with MSBuild
+      shell: cmd
+      run: |
+        set VCPKG_ROOT=%CD%\vcpkg
+        %VCPKG_ROOT%\vcpkg integrate install
+        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE"
+
+    - name: Upload Windows build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: recap-parser-windows
+        path: x64/Release/recap_parser.exe
+
+  build-ubuntu:
+    needs: get-info
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ make cmake
+        
+    - name: Setup CMake
+      run: |
+        mkdir -p build
+        cd build
+        cat > CMakeLists.txt << EOF
+        cmake_minimum_required(VERSION 3.10)
+        project(recap_parser)
+        set(CMAKE_CXX_STANDARD 20)
+        add_executable(recap_parser ../main.cpp ../catalog.cpp)
+        EOF
+        
+    - name: Build
+      run: |
+        cd build
+        cmake .
+        make
+        
+    - name: Prepare output directory
+      run: |
+        mkdir -p bin_output
+        cp build/recap_parser bin_output/
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
+        path: bin_output/*
