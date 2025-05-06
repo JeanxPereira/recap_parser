@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
   SOLUTION_FILE_PATH: recap_parser.sln
@@ -184,11 +185,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ needs.get-info.outputs.version }}
-          name: Recap Parser v${{ needs.get-info.outputs.version }}
+          name: recap_parser v${{ needs.get-info.outputs.version }}
           draft: false
           prerelease: false
           body: |
-            Release of Recap Parser v${{ needs.get-info.outputs.version }}
+            ~[Release] recap_parser v${{ needs.get-info.outputs.version }}
             
             Date: ${{ needs.get-info.outputs.date }}
             Commit: ${{ needs.get-info.outputs.shorthash }}
