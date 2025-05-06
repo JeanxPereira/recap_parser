@@ -123,7 +123,6 @@ jobs:
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(PUGIXML REQUIRED pugixml)
         find_package(Boost REQUIRED COMPONENTS program_options filesystem)
-        find_package(fmt REQUIRED)
         
         add_executable(recap_parser ../main.cpp ../catalog.cpp ../parser.cpp)
         
@@ -135,7 +134,8 @@ jobs:
         target_link_libraries(recap_parser PRIVATE
           ${PUGIXML_LIBRARIES}
           ${Boost_LIBRARIES}
-          fmt::fmt
+          -lboost_program_options
+          pugixml
         )
         EOF
         

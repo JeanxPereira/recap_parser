@@ -20,7 +20,7 @@ elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmak
 endif()
 
 # Find required packages
-find_package(pugixml CONFIG REQUIRED)
+find_package(PugiXML REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options filesystem)
 find_package(fmt CONFIG REQUIRED)
 
