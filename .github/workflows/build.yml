@@ -51,7 +51,8 @@ jobs:
       run: |
         git clone https://github.com/Microsoft/vcpkg.git
         cd vcpkg
-        git checkout 501db0f17ef6df184fcdbfbe0f87cde2313b6ab1
+        # Use a more recent commit
+        git checkout master
         .\bootstrap-vcpkg.bat
 
     - name: Cache vcpkg packages
@@ -83,8 +84,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y g++ make cmake
-        
+        sudo apt-get install -y g++ make cmake libboost-all-dev
+            
     - name: Setup CMake
       run: |
         mkdir -p build
@@ -93,7 +94,13 @@ jobs:
         cmake_minimum_required(VERSION 3.10)
         project(recap_parser)
         set(CMAKE_CXX_STANDARD 20)
+        
+        # Add Boost
+        find_package(Boost REQUIRED COMPONENTS program_options)
+        include_directories(${Boost_INCLUDE_DIRS})
+        
         add_executable(recap_parser ../main.cpp ../catalog.cpp)
+        target_link_libraries(recap_parser ${Boost_LIBRARIES})
         EOF
         
     - name: Build
