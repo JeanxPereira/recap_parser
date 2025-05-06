@@ -1,4 +1,4 @@
-ame: Build and Release
+name: Build and Release
 
 on:
   push:
@@ -37,8 +37,9 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
         echo "shorthash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-        
+
   build-windows:
+    needs: get-info
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
