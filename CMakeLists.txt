@@ -23,12 +23,12 @@ endif()
 find_package(PugiXML REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options filesystem)
 find_package(fmt CONFIG REQUIRED)
-find_package(yaml-cpp CONFIG REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # Add the executable
 add_executable(recap_parser 
   main.cpp 
-  catalog.cpp 
+  catalog.cpp
   parser.cpp
   Resource.rc
 )
@@ -44,6 +44,7 @@ target_link_libraries(recap_parser PRIVATE
   Boost::program_options
   Boost::filesystem
   fmt::fmt
+  yaml-cpp::yaml-cpp
 )
 
 # Install
@@ -60,6 +61,7 @@ if(WIN32)
   add_custom_command(TARGET recap_parser POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       $<TARGET_FILE:pugixml::pugixml>
+      $<TARGET_FILE:yaml-cpp::yaml-cpp>
       $<TARGET_FILE:fmt::fmt>
       $<TARGET_FILE_DIR:recap_parser>
   )
