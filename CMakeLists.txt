@@ -4,7 +4,7 @@ project(recap_parser VERSION 1.0.0 LANGUAGES CXX)
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 # If running on Windows, add UTF-8 support similar to the /utf-8 MSVC option
 if(MSVC)
   add_compile_options(/utf-8)
@@ -44,7 +44,7 @@ target_link_libraries(recap_parser PRIVATE
   Boost::program_options
   Boost::filesystem
   fmt::fmt
-  yaml-cpp::yaml-cpp
+  yaml-cpp
 )
 
 # Install

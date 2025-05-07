@@ -113,33 +113,7 @@ jobs:
       run: |
         mkdir -p build
         cd build
-        cat > CMakeLists.txt << EOF
-        cmake_minimum_required(VERSION 3.14)
-        project(recap_parser)
-        set(CMAKE_CXX_STANDARD 20)
-        
-        find_package(PkgConfig REQUIRED)
-        pkg_check_modules(PUGIXML REQUIRED pugixml)
-        find_package(Boost REQUIRED COMPONENTS program_options filesystem)
-        find_package(fmt REQUIRED)
-        
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-        
-        add_executable(recap_parser ../main.cpp ../catalog.cpp ../parser.cpp)
-        
-        target_include_directories(recap_parser PRIVATE
-          ${PUGIXML_INCLUDE_DIRS}
-          ${Boost_INCLUDE_DIRS}
-        )
-        
-        target_link_libraries(recap_parser PRIVATE
-          ${PUGIXML_LIBRARIES}
-          ${Boost_LIBRARIES}
-          fmt::fmt
-          -lboost_program_options
-          pugixml
-        )
-        EOF
+        cmake .. -DCMAKE_BUILD_TYPE=Release
         
     - name: Build
       run: |
