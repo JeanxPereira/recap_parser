@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include "exporter.h"
 #include <string>
 #include <stack>
 #include <vector>
@@ -448,7 +449,7 @@ private:
     std::ifstream fileStream;
     std::string filename;
 
-    size_t totalArraySize;
+    size_t totalArraySize = 0;
 
     bool isInsideNullable = false;
     bool secOffsetStruct = false;
@@ -463,10 +464,10 @@ private:
     bool processingArrayElement = false;
     bool isProcessingRootTag = false;
     bool debugMode;
-    bool xmlMode;
+    bool exportMode;
     int indentLevel = 0;
-    pugi::xml_document xmlDoc;
-    pugi::xml_node currentXmlNode;
+
+    std::unique_ptr<FormatExporter> exporter;
 
     std::string getIndent() const {
         return std::string(indentLevel * 4, ' ');
@@ -488,10 +489,15 @@ private:
     void parseStruct(const std::string& structName, int arrayIndex = -1);
     void parseMember(const StructMember& member, const std::shared_ptr<StructDefinition>& parentStruct, size_t arraySize = 0);
 public:
-    Parser(const Catalog& catalog, const std::string& filename, bool debugMode = false, bool xmlMode = false)
-        : catalog(catalog), offsetManager(fileStream), filename(filename), debugMode(debugMode), xmlMode(xmlMode) {
+    Parser(const Catalog& catalog, const std::string& filename, bool debugMode = false, const std::string& exportFormat = "xml")
+        : catalog(catalog), offsetManager(fileStream), filename(filename),
+        debugMode(debugMode), exportMode(exportFormat != "none") {
+
+        if (exportFormat != "none") {
+            exporter = ExporterFactory::createExporter(exportFormat);
+        }
     }
 
     bool parse();
-    void exportXml(const std::string& outputFile);
+    void exportToFile(const std::string& outputFile);
 };

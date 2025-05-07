@@ -13,25 +13,23 @@ env:
 
 jobs:
   get-info:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.extract_version.outputs.version }}
+      version: ${{ steps.calculate_version.outputs.version }}
       date: ${{ steps.vars.outputs.date }}
       shorthash: ${{ steps.vars.outputs.shorthash }}
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    - name: Extract version from version.txt
-      id: extract_version
+        fetch-tags: true
+    - name: List tags
+      run: git tag
+    - name: Calculate version
+      id: calculate_version
       run: |
-        if [ -f "version.txt" ]; then
-          echo "version=$(cat version.txt)" >> $GITHUB_OUTPUT
-        else
-          echo "version=1.0.0" >> $GITHUB_OUTPUT
-          echo "1.0.0" > version.txt
-          echo "Created version.txt with default version 1.0.0"
-        fi
+        chmod +x ./calculate_new_version.sh
+        echo "version=$(./calculate_new_version.sh)" >> $GITHUB_OUTPUT
     - name: Get date and git hash
       id: vars
       run: |
@@ -89,7 +87,7 @@ jobs:
     - name: Upload Windows build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: recap-parser-windows
+        name: recap_parser-${{ needs.get-info.outputs.version }}-windows-x64
         path: x64/Release/recap_parser.exe
 
   build-ubuntu:

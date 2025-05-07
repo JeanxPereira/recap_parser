@@ -23,6 +23,7 @@ endif()
 find_package(PugiXML REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options filesystem)
 find_package(fmt CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
 
 # Add the executable
 add_executable(recap_parser 

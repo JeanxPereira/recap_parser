@@ -1,4 +1,5 @@
 ﻿#include "catalog.h"
+#include "exporter.h"
 #include <iostream>
 #include <cstring>
 #include <algorithm>
@@ -32,15 +33,18 @@ bool Parser::parse() {
     offsetManager.setPrimaryOffset(0);
     offsetManager.setSecondaryOffset(fileType->secondaryOffsetStart);
 
-    if (xmlMode) {
-        xmlDoc = pugi::xml_document();
-        currentXmlNode = xmlDoc;
+    if (exportMode && exporter) {
+        exporter->beginDocument();
     }
 
     for (const auto& structType : fileType->structTypes) {
         isProcessingRootTag = true;
         parseStruct(structType);
         isProcessingRootTag = false;
+    }
+
+    if (exportMode && exporter) {
+        exporter->endDocument();
     }
 
     fileStream.close();
@@ -62,19 +66,19 @@ void Parser::parseStruct(const std::string& structName, int arrayIndex) {
             logParse(fmt::format("parse_struct({})", structName));
         }
 
-        pugi::xml_node prevXmlNode;
-        if (xmlMode) {
-            prevXmlNode = currentXmlNode;
-
+        bool shouldEndNode = false;
+        if (exportMode && exporter) {
             if (isProcessingRootTag) {
                 std::string lowerStructName = structName;
                 std::transform(lowerStructName.begin(), lowerStructName.end(),
                     lowerStructName.begin(), [](unsigned char c) { return std::tolower(c); });
-                currentXmlNode = currentXmlNode.append_child(lowerStructName.c_str());
+                exporter->beginNode(lowerStructName);
                 isProcessingRootTag = false;
+                shouldEndNode = true;
             }
             else if (arrayIndex < 0 && !isInsideNullable) {
-                currentXmlNode = currentXmlNode.append_child(structName.c_str());
+                exporter->beginNode(structName);
+                shouldEndNode = true;
             }
         }
 
@@ -114,8 +118,8 @@ void Parser::parseStruct(const std::string& structName, int arrayIndex) {
             currentStructBaseOffset = previousStructBaseOffset;
         }
 
-        if (xmlMode) {
-            currentXmlNode = prevXmlNode;
+        if (exportMode && exporter && shouldEndNode) {
+            exporter->endNode();
         }
     }
     catch (const std::exception& e) {
@@ -184,10 +188,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             logParse(fmt::format("parse_member_array({}, {})", member.name, count));
             indentLevel++;
 
-            pugi::xml_node arrayNode;
-            pugi::xml_node originalNode = currentXmlNode;
-            if (xmlMode) {
-                arrayNode = currentXmlNode.append_child(member.name.c_str());
+            if (exportMode && exporter) {
+                exporter->beginArray(member.name);
             }
 
             if (structDef) {
@@ -198,8 +200,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
                 offsetManager.setSecondaryOffset(originalSecondaryOffset + totalArraySize);
 
                 for (uint32_t i = 0; i < count; i++) {
-                    if (xmlMode) {
-                        currentXmlNode = arrayNode.append_child("entry");
+                    if (exportMode && exporter) {
+                        exporter->beginArrayEntry();
                     }
 
                     if (useSecondaryForElements) {
@@ -219,8 +221,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
                         elementBaseOffset += elementSize;
                     }
 
-                    if (xmlMode) {
-                        currentXmlNode = arrayNode;
+                    if (exportMode && exporter) {
+                        exporter->endArrayEntry();
                     }
                 }
             }
@@ -246,25 +248,28 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
                         }
 
                         StructMember elementMember("entry", member.elementType, offsetManager.getPrimaryOffset(), useSecondaryForElements);
-                        if (xmlMode) {
-                            currentXmlNode = arrayNode.append_child("entry");
+
+                        if (exportMode && exporter) {
+                            exporter->beginArrayEntry();
                         }
 
                         parseMember(elementMember, parentStruct);
+
+                        if (exportMode && exporter) {
+                            exporter->endArrayEntry();
+                        }
 
                         if (!useSecondaryForElements) {
                             offsetManager.advancePrimary(elementSize);
                         }
                     }
-                    if (xmlMode) {
-                        currentXmlNode = originalNode;
-                    }
                 }
             }
 
-            if (xmlMode) {
-                currentXmlNode = originalNode;
+            if (exportMode && exporter) {
+                exporter->endArray();
             }
+
             processingArrayElement = false;
             indentLevel--;
         }
@@ -305,6 +310,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = value ? "true" : "false";
         logMessage = fmt::format("parse_member_bool({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportBool(member.name, value);
+        }
         break;
     }
     case DataType::INT: {
@@ -317,6 +326,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_int({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportInt(member.name, value);
+        }
         break;
     }
     case DataType::FLOAT: {
@@ -329,6 +342,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = fmt::format("{:.5f}", value);
         logMessage = fmt::format("parse_member_float({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportFloat(member.name, value);
+        }
         break;
     }
     case DataType::GUID: {
@@ -360,8 +377,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
 
         logMessage = fmt::format("parse_member_guid({}, {})", member.name, valueStr);
 
-        if (xmlMode) {
-            currentXmlNode.append_child(member.name.c_str()).text().set(valueStr.c_str());
+        if (exportMode && exporter) {
+            exporter->exportGuid(member.name, valueStr);
         }
         break;
     }
@@ -379,10 +396,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         valueStr = fmt::format("x: {:.5f}, y: {:.5f}", x, y);
         logMessage = fmt::format("parse_member_cSPVector2({}, {})", member.name, valueStr);
 
-        if (xmlMode) {
-            auto vecNode = currentXmlNode.append_child(member.name.c_str());
-            vecNode.append_child("x").text().set(fmt::format("{:.5f}", x).c_str());
-            vecNode.append_child("y").text().set(fmt::format("{:.5f}", y).c_str());
+        if (exportMode && exporter) {
+            exporter->exportVector2(member.name, x, y);
         }
         break;
     }
@@ -403,11 +418,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         valueStr = fmt::format("x: {:.5f}, y: {:.5f}, z: {:.5f}", x, y, z);
         logMessage = fmt::format("parse_member_cSPVector3({}, {})", member.name, valueStr);
 
-        if (xmlMode) {
-            auto vecNode = currentXmlNode.append_child(member.name.c_str());
-            vecNode.append_child("x").text().set(fmt::format("{:.5f}", x).c_str());
-            vecNode.append_child("y").text().set(fmt::format("{:.5f}", y).c_str());
-            vecNode.append_child("z").text().set(fmt::format("{:.5f}", z).c_str());
+        if (exportMode && exporter) {
+            exporter->exportVector3(member.name, x, y, z);
         }
         break;
     }
@@ -431,12 +443,8 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         valueStr = fmt::format("w: {:.5f}, x: {:.5f}, y: {:.5f}, z: {:.5f}", w, x, y, z);
         logMessage = fmt::format("parse_member_cSPVector4({}, {})", member.name, valueStr);
 
-        if (xmlMode) {
-            auto vecNode = currentXmlNode.append_child(member.name.c_str());
-            vecNode.append_child("w").text().set(fmt::format("{:.5f}", w).c_str());
-            vecNode.append_child("x").text().set(fmt::format("{:.5f}", x).c_str());
-            vecNode.append_child("y").text().set(fmt::format("{:.5f}", y).c_str());
-            vecNode.append_child("z").text().set(fmt::format("{:.5f}", z).c_str());
+        if (exportMode && exporter) {
+            exporter->exportQuaternion(member.name, w, x, y, z);
         }
         break;
     }
@@ -447,11 +455,13 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             std::string key = offsetManager.readString(true);
             valueStr = key;
             logMessage = fmt::format("parse_member_key({}, {})", member.name, valueStr);
+
+            if (exportMode && exporter) {
+                exporter->exportString(member.name, valueStr);
+            }
         }
         else {
             return;
-            //valueStr = "null";
-            //logMessage = fmt::format("parse_member_key({}, {})", member.name, valueStr);
         }
         break;
     }
@@ -462,6 +472,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             std::string key = offsetManager.readString(true);
             valueStr = key;
             logMessage = fmt::format("parse_member_cKeyAsset({}, {})", member.name, valueStr);
+
+            if (exportMode && exporter) {
+                exporter->exportString(member.name, valueStr);
+            }
         }
         else {
             return;
@@ -477,9 +491,20 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             if (assetString != 0) {
                 std::string id = offsetManager.readString(true);
                 logMessage = fmt::format("parse_member_cLocalizedAssetString({}, {}, {})", member.name, str, id);
+
+                if (exportMode && exporter) {
+                    exporter->beginNode(member.name);
+                    exporter->exportString("text", str);
+                    exporter->exportString("id", id);
+                    exporter->endNode();
+                }
             }
             else {
                 logMessage = fmt::format("parse_member_cLocalizedAssetString({}, {})", member.name, str);
+
+                if (exportMode && exporter) {
+                    exporter->exportString(member.name, str);
+                }
             }
         }
         else {
@@ -494,6 +519,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             std::string asset = offsetManager.readString(true);
             valueStr = asset;
             logMessage = fmt::format("parse_member_asset({}, {})", member.name, valueStr);
+
+            if (exportMode && exporter) {
+                exporter->exportString(member.name, valueStr);
+            }
         }
         else {
             return;
@@ -507,6 +536,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             std::string char_ptr = offsetManager.readString(true);
             valueStr = char_ptr;
             logMessage = fmt::format("parse_member_char*({}, {})", member.name, valueStr);
+
+            if (exportMode && exporter) {
+                exporter->exportString(member.name, valueStr);
+            }
         }
         else {
             return;
@@ -518,6 +551,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         valueStr = string;
         if (!string.empty() && string != "0") {
             logMessage = fmt::format("parse_member_char({}, {})", member.name, valueStr);
+
+            if (exportMode && exporter) {
+                exporter->exportString(member.name, valueStr);
+            }
         }
         else {
             return;
@@ -534,6 +571,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_enum({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportUInt32(member.name, value);
+        }
         break;
     }
     case DataType::UINT8: {
@@ -546,6 +587,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_uint8_t({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportUInt8(member.name, value);
+        }
         break;
     }
     case DataType::UINT16: {
@@ -558,6 +603,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_uint16_t({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportUInt16(member.name, value);
+        }
         break;
     }
     case DataType::UINT32: {
@@ -570,6 +619,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = std::to_string(value);
         logMessage = fmt::format("parse_member_uint32_t({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportUInt32(member.name, value);
+        }
         break;
     }
     case DataType::UINT64: {
@@ -582,6 +635,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = fmt::format("0x{:X}", value);
         logMessage = fmt::format("parse_member_uint64_t({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportUInt64(member.name, value);
+        }
         break;
     }
     case DataType::INT64: {
@@ -594,6 +651,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
         }
         valueStr = fmt::format("0x{:X}", value);
         logMessage = fmt::format("parse_member_int64_t({}, {})", member.name, valueStr);
+
+        if (exportMode && exporter) {
+            exporter->exportInt64(member.name, value);
+        }
         break;
     }
     case DataType::NULLABLE: {
@@ -611,7 +672,6 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
                 }
 
                 startNullableOffset = offsetManager.getRealSecondaryOffset();
-                //printf("startNullableOffset: %zu\n", startNullableOffset);
 
                 bool oldSecOffsetStruct = secOffsetStruct;
                 size_t oldStructBaseOffset = currentStructBaseOffset;
@@ -624,14 +684,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
                 offsetManager.setPrimaryOffset(offsetManager.getSecondaryOffset());
                 offsetManager.setSecondaryOffset(originalSecondaryOffset + targetStruct->getFixedSize());
 
-                if (xmlMode) {
-                    pugi::xml_node prevXmlNode = currentXmlNode;
-                    currentXmlNode = currentXmlNode.append_child(member.name.c_str());
-                    size_t tempIndentLevel = indentLevel;
+                if (exportMode && exporter) {
+                    exporter->beginNode(member.name);
                     parseStruct(typeDef->targetType);
-                    indentLevel = tempIndentLevel;
-
-                    currentXmlNode = prevXmlNode;
+                    exporter->endNode();
                 }
                 else {
                     parseStruct(typeDef->targetType);
@@ -661,12 +717,18 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
             logMessage = fmt::format("parse_member_struct({})", typeDef->targetType);
         }
         logParse(logMessage);
-        //indentLevel++;
         size_t currentOffset = offsetManager.getPrimaryOffset();
         size_t previousBaseOffset = currentStructBaseOffset;
         currentStructBaseOffset = currentOffset;
 
-        parseStruct(typeDef->targetType);
+        if (exportMode && exporter && member.hasCustomName) {
+            exporter->beginNode(member.name);
+            parseStruct(typeDef->targetType);
+            exporter->endNode();
+        }
+        else {
+            parseStruct(typeDef->targetType);
+        }
 
         currentStructBaseOffset = previousBaseOffset;
         return;
@@ -679,15 +741,10 @@ void Parser::parseMember(const StructMember& member, const std::shared_ptr<Struc
     }
 
     logParse(logMessage);
-
-    if (xmlMode && typeDef->type != DataType::VECTOR2 &&
-        typeDef->type != DataType::VECTOR3 && typeDef->type != DataType::QUATERNION) {
-        currentXmlNode.append_child(member.name.c_str()).text().set(valueStr.c_str());
-    }
 }
 
-void Parser::exportXml(const std::string& outputFile) {
-    if (!xmlMode) return;
-
-    xmlDoc.save_file(outputFile.c_str());
+void Parser::exportToFile(const std::string& outputFile) {
+    if (exportMode && exporter) {
+        exporter->saveToFile(outputFile);
+    }
 }

@@ -3,6 +3,7 @@
 #include <vector>
 #include <boost/program_options.hpp>
 #include "catalog.h"
+#include "exporter.h"
 
 #if ((defined(_MSVC_LANG) && _MSVC_LANG >= 201703L) || __cplusplus >= 201703L)
 #include <filesystem>
@@ -76,7 +77,7 @@ private:
 };
 
 bool processFile(const std::string& filepath, const std::string& outputDir,
-    bool xmlMode, bool debugMode, std::ofstream& logFile,
+    const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
     std::vector<std::string>& failedFiles) {
 
     std::streambuf* coutOriginal = nullptr;
@@ -152,7 +153,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                 return false;
             }
 
-            Parser parser(catalog, filepath, debugMode, xmlMode);
+            Parser parser(catalog, filepath, debugMode, exportFormat);
 
             std::cout << "Parsing \"" << filename << "\"" << std::endl;
 
@@ -161,9 +162,12 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                 failedFiles.push_back(filepath);
                 success = false;
             }
-            else if (xmlMode) {
+            else if (exportFormat != "none") {
                 std::string originalExtension = fs::path(filepath).extension().string();
-                std::string outputFilename = fs::path(filepath).stem().string() + originalExtension + ".xml";
+
+                std::string outputExtension = (exportFormat == "xml") ? ".xml" : ".yaml";
+
+                std::string outputFilename = fs::path(filepath).stem().string() + originalExtension + outputExtension;
 
                 std::string outputPath;
                 if (!outputDir.empty()) {
@@ -173,7 +177,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                     outputPath = outputFilename;
                 }
 
-                parser.exportXml(outputPath);
+                parser.exportToFile(outputPath);
                 std::cout << "Exported to " << outputPath << std::endl;
             }
         }
@@ -201,7 +205,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
 }
 
 void processDirectory(const std::string& dirPath, const std::string& outputDir,
-    bool xmlMode, bool debugMode, std::ofstream& logFile,
+    const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
     std::vector<std::string>& failedFiles, const std::string& formatFilter = "") {
 
     Catalog tempCatalog;
@@ -235,13 +239,13 @@ void processDirectory(const std::string& dirPath, const std::string& outputDir,
 
                 if (formatFilter.empty()) {
                     if (isSupportedFileType(filePath, tempCatalog)) {
-                        processFile(filePath, outputDir, xmlMode, debugMode, logFile, failedFiles);
+                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles);
                     }
                 }
                 else {
                     if (hasExtension(filePath, formatFilter)) {
                         std::cout << "Processing matching file: " << entry.path().filename().string() << std::endl;
-                        processFile(filePath, outputDir, xmlMode, debugMode, logFile, failedFiles);
+                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles);
                     }
                 }
             }
@@ -267,6 +271,7 @@ int main(int argc, char* argv[]) {
         ("help,h", "produce help message")
         ("file", po::value<std::string>(), "input file or directory to parse")
         ("xml", "export to XML")
+        ("yaml,y,yml", "export to YAML")
         ("debug,d", "enable debug mode to show offsets")
         ("recursive,r", po::value<std::string>()->implicit_value(""), "process all supported files in directory recursively. Optionally specify a format to filter by.")
         ("output,o", po::value<std::string>(), "specify output directory for exported files")
@@ -286,16 +291,31 @@ int main(int argc, char* argv[]) {
     }
 
     if (vm.count("help") || !vm.count("file")) {
-        std::cout << "Usage: parser [options] <file|directory>" << std::endl;
+        std::cout << "ReCap Parser for Darkspore" << std::endl;
+        std::cout << "Usage: recap_parser [options] <file|directory>" << std::endl;
         std::cout << desc << std::endl;
         return 0;
     }
 
     std::string inputPath = vm["file"].as<std::string>();
     bool xmlMode = vm.count("xml") > 0;
+    bool yamlMode = vm.count("yaml") > 0;
     bool debugMode = vm.count("debug") > 0;
     std::string formatFilter = "";
     bool recursiveMode = false;
+
+    if (xmlMode && yamlMode) {
+        std::cerr << "Error: Cannot specify both --xml and --yaml at the same time." << std::endl;
+        return 1;
+    }
+
+    std::string exportFormat = "none";
+    if (xmlMode) {
+        exportFormat = "xml";
+    }
+    else if (yamlMode) {
+        exportFormat = "yaml";
+    }
 
     if (vm.count("recursive")) {
         recursiveMode = true;
@@ -353,14 +373,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (recursiveMode && fs::is_directory(inputPath)) {
-        processDirectory(inputPath, outputDir, xmlMode, debugMode, logFile, failedFiles, formatFilter);
+        processDirectory(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, formatFilter);
     }
     else if (fs::is_directory(inputPath)) {
         std::cerr << "Input path is a directory. Use --recursive to process all files." << std::endl;
         return 1;
     }
     else {
-        processFile(inputPath, outputDir, xmlMode, debugMode, logFile, failedFiles);
+        processFile(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles);
     }
 
     if (!failedFiles.empty()) {
