@@ -33,6 +33,7 @@ void Catalog::initialize() {
     registerFileType(".AffixTuning", { "AffixTuning" }, 24);
     registerFileType(".AIDefinition", { "AIDefinition" }, 640);
     registerFileName("catalog_131", { "Catalog" }, 8);
+    registerFileType(".ChainLevels", { "ChainLevels" }, 12);
     registerFileType(".CharacterAnimation", { "CharacterAnimation" }, 660);
     registerFileType(".CharacterType", { "CharacterType" }, 0);
     registerFileType(".ClassAttributes", { "ClassAttributes" }, 0);
@@ -57,6 +58,7 @@ void Catalog::initialize() {
     registerFileType(".ObjectExtents", { "ObjectExtents" }, 0);
     registerFileType(".Phase", { "Phase" }, 68);
     registerFileType(".PlayerClass", { "PlayerClass" }, 256);
+    registerFileType(".PVPLevels", { "PVPLevels" }, 8);
     registerFileType(".SectionConfig", { "SectionConfig" }, 8);
     registerFileType(".ServerEventDef", { "ServerEventDef" }, 16);
     registerFileType(".SpaceshipTuning", { "SpaceshipTuning" }, 668);
@@ -1526,4 +1528,24 @@ void Catalog::initialize() {
 
     auto Catalog = add_struct("Catalog");
          Catalog->addStructArray("entries", CatalogEntry, 0);
+
+    //   ChainLevels
+    auto LevelAsset = add_struct("LevelAsset");
+         LevelAsset->add("unk", "asset", 0);
+
+    auto ChainLevel = add_struct("ChainLevel", 72);
+         ChainLevel->add("unk1", "asset", 0);
+         ChainLevel->add("unkInt", "uint32_t", 4); //can be a count array of unk1
+         ChainLevel->add("unk2", "asset", 20);
+         ChainLevel->add("unk3", "asset", 36);
+         ChainLevel->add("unk4", "asset", 52);
+         ChainLevel->add("unk5", "asset", 68);
+
+    auto ChainLevels = add_struct("ChainLevels");
+         ChainLevels->addStructArray("ChainLevel", ChainLevel, 0);
+         ChainLevels->add("unkFloat", "float", 8);
+
+    //   PVPLevels
+    auto PVPLevels = add_struct("PVPLevels");
+         PVPLevels->addArray("levels", "asset", 0); //unk data name
 }
