@@ -71,12 +71,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Label="Vcpkg">
-    <VcpkgEnabled>true</VcpkgEnabled>
-    <VcpkgEnableManifest>true</VcpkgEnableManifest>
-    <VcpkgUseStatic>false</VcpkgUseStatic>
-    <VcpkgAutoLink>true</VcpkgAutoLink>
-    <VcpkgTriplet>x64-windows</VcpkgTriplet>
-  </PropertyGroup>
+      <VcpkgEnabled>true</VcpkgEnabled>
+      <VcpkgEnableManifest>true</VcpkgEnableManifest>
+      <VcpkgUseStatic>true</VcpkgUseStatic>
+      <VcpkgAutoLink>true</VcpkgAutoLink>
+      <VcpkgTriplet>x64-windows-static</VcpkgTriplet>
+    </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>

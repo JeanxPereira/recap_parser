@@ -91,37 +91,35 @@ jobs:
         path: x64/Release/recap_parser.exe
 
   build-ubuntu:
-    needs: get-info
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y g++ make cmake libboost-all-dev libpugixml-dev libfmt-dev libyaml-cpp-dev
+      needs: get-info
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make cmake pkg-config \
+            libboost-all-dev libpugixml-dev libfmt-dev libyaml-cpp-dev
 
-    - name: Setup and Build with CMake
-      run: |
-        # Remove any existing build directory to prevent cached CMakeLists conflicts
-        rm -rf build
-        
-        # Create build directory and build
-        mkdir -p build
-        cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release
-        make
-        
-    - name: Prepare output directory
-      run: |
-        mkdir -p bin_output
-        cp build/recap_parser bin_output/
-        
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
-        path: bin_output/*
+      - name: Setup and Build with CMake
+        run: |
+          rm -rf build
+          mkdir -p build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+          
+      - name: Prepare output directory
+        run: |
+          mkdir -p bin_output
+          cp build/recap_parser bin_output/
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
+          path: bin_output/*
 
   create-release:
     needs: [get-info, build-windows, build-ubuntu]
