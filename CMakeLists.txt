@@ -3,7 +3,10 @@ project(recap_parser VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+
+# FORÇA LINKAGEM TOTALMENTE ESTÁTICA
+set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 
 if(MSVC)
   add_compile_options(/utf-8)
@@ -18,6 +21,7 @@ endif()
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
 
 find_package(PugiXML REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options filesystem)
@@ -36,11 +40,17 @@ target_include_directories(recap_parser PRIVATE
 )
 
 target_link_libraries(recap_parser PRIVATE
+  -Wl,-Bstatic
   pugixml::pugixml
   Boost::program_options
   Boost::filesystem
   fmt::fmt
   yaml-cpp
+  -Wl,-Bdynamic
+  -lpthread
+  -lm
+  -ldl
+  -lrt
 )
 
 install(TARGETS recap_parser DESTINATION bin)
