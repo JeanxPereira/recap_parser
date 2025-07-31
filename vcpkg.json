@@ -5,19 +5,33 @@
   "dependencies": [
     {
       "name": "boost-program-options",
-      "version>=": "1.81.0"
+      "version>=": "1.81.0",
+      "default-features": false,
+      "features": []
+    },
+    {
+      "name": "boost-filesystem", 
+      "version>=": "1.81.0",
+      "default-features": false,
+      "features": []
     },
     {
       "name": "yaml-cpp",
-      "version>=": "0.8.0#2"
+      "version>=": "0.8.0#2",
+      "default-features": false,
+      "features": []
     },
     {
       "name": "fmt",
-      "version>=": "9.0.0"
+      "version>=": "9.0.0",
+      "default-features": false,
+      "features": []
     },
     {
       "name": "pugixml",
-      "version>=": "1.12.1"
+      "version>=": "1.12.1",
+      "default-features": false,
+      "features": []
     }
   ],
   "overrides": [
@@ -25,5 +39,11 @@
       "name": "boost-filesystem",
       "version": "1.81.0"
     }
-  ]
+  ],
+  "features": {
+    "static": {
+      "description": "Build with static libraries",
+      "dependencies": []
+    }
+  }
 }
