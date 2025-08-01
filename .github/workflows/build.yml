@@ -76,31 +76,18 @@ jobs:
           ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-
           ${{ runner.os }}-vcpkg-
 
-    - name: Build with MSBuild (Static)
+    - name: Build with MSBuild
       shell: cmd
       run: |
         set VCPKG_ROOT=%CD%\vcpkg
         %VCPKG_ROOT%\vcpkg integrate install
         
-        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows-static /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE" /p:RuntimeLibrary=MultiThreaded
-
-    - name: Verify Windows build is static
-      shell: powershell
-      run: |
-        $exe = "x64/Release/recap_parser.exe"
-        if (Test-Path $exe) {
-          Write-Host "Executable found: $exe"
-          # Windows: verificar dependências
-          & dumpbin /dependents $exe
-        } else {
-          Write-Error "Executable not found!"
-          exit 1
-        }
+        msbuild recap_parser.sln /p:Configuration=Release /p:Platform=x64 /p:LanguageStandard=stdcpp20 /p:AdditionalOptions="/utf-8" /p:VcpkgEnabled=true /p:VcpkgEnableManifest=true /p:VcpkgAutoLink=true /p:VcpkgTriplet=x64-windows-static /p:PreprocessorDefinitions="_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;NDEBUG;_CONSOLE"
 
     - name: Upload Windows build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: recap_parser-${{ needs.get-info.outputs.version }}-windows-x64-static
+        name: recap_parser-${{ needs.get-info.outputs.version }}-windows-x64
         path: x64/Release/recap_parser.exe
 
   build-ubuntu:
@@ -109,118 +96,33 @@ jobs:
       steps:
       - uses: actions/checkout@v4
       
-      - name: Install static development libraries
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            g++ make cmake pkg-config \
-            libboost-all-dev \
-            libpugixml-dev \
-            libfmt-dev \
-            libyaml-cpp-dev \
-            libc6-dev
+          sudo apt-get install -y g++ make cmake pkg-config \
+            libboost-all-dev libpugixml-dev libfmt-dev libyaml-cpp-dev
 
-      - name: Verify static libraries availability
-        run: |
-          echo "Checking for static libraries..."
-          find /usr/lib* -name "libfmt.a" 2>/dev/null || echo "libfmt.a not found in system paths"
-          find /usr/lib* -name "libpugixml.a" 2>/dev/null || echo "libpugixml.a not found in system paths"
-          find /usr/lib* -name "libyaml-cpp.a" 2>/dev/null || echo "libyaml-cpp.a not found in system paths"
-          
-          # Lista bibliotecas boost estáticas disponíveis
-          ls /usr/lib/x86_64-linux-gnu/libboost_*filesystem*.a 2>/dev/null || echo "No boost filesystem static libs found"
-          ls /usr/lib/x86_64-linux-gnu/libboost_*program_options*.a 2>/dev/null || echo "No boost program_options static libs found"
-
-      - name: Setup and Build with CMake (Static)
+      - name: Setup and Build with CMake
         run: |
           rm -rf build
           mkdir -p build
           cd build
-          
-          # Configurar para build estático
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_STATIC_EXECUTABLE=ON \
-            -DCMAKE_VERBOSE_MAKEFILE=ON
-          
-          # Build com verbose para debug
-          make -j$(nproc) VERBOSE=1
-          
-      - name: Verify Linux build is static  
-        run: |
-          cd build
-          echo "Checking if executable exists..."
-          ls -la recap_parser || exit 1
-          
-          echo "File type information:"
-          file recap_parser
-          
-          echo "Checking dynamic dependencies:"
-          if ldd recap_parser 2>&1 | grep -q "not a dynamic executable"; then
-            echo "✅ Successfully built static executable!"
-          else
-            echo "⚠️  Executable has dynamic dependencies:"
-            ldd recap_parser
-            echo "This may be acceptable depending on requirements..."
-          fi
-          
-          echo "Checking for undefined symbols:"
-          nm -u recap_parser | head -20 || echo "No undefined symbols or nm failed"
-          
-          echo "Testing executable:"
-          ./recap_parser --help || echo "Executable test failed"
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
           
       - name: Prepare output directory
         run: |
           mkdir -p bin_output
           cp build/recap_parser bin_output/
           
-          # Criar informações sobre o build
-          cd build
-          echo "Build Information:" > ../bin_output/BUILD_INFO.txt
-          echo "=================" >> ../bin_output/BUILD_INFO.txt
-          echo "Date: $(date)" >> ../bin_output/BUILD_INFO.txt
-          echo "Commit: ${{ needs.get-info.outputs.shorthash }}" >> ../bin_output/BUILD_INFO.txt
-          echo "Version: ${{ needs.get-info.outputs.version }}" >> ../bin_output/BUILD_INFO.txt
-          echo "" >> ../bin_output/BUILD_INFO.txt
-          echo "File Type:" >> ../bin_output/BUILD_INFO.txt
-          file recap_parser >> ../bin_output/BUILD_INFO.txt
-          echo "" >> ../bin_output/BUILD_INFO.txt
-          echo "Dependencies:" >> ../bin_output/BUILD_INFO.txt
-          ldd recap_parser >> ../bin_output/BUILD_INFO.txt 2>&1 || echo "Static executable (no dynamic dependencies)" >> ../bin_output/BUILD_INFO.txt
-          
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64-static
+          name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64
           path: bin_output/*
 
-  test-static-portability:
-    needs: [get-info, build-ubuntu]
-    runs-on: ubuntu-20.04  # Versão mais antiga para testar portabilidade
-    steps:
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: recap_parser-${{ needs.get-info.outputs.version }}-linux-x64-static
-          path: ./artifacts
-          
-      - name: Test portability on older Ubuntu
-        run: |
-          chmod +x ./artifacts/recap_parser
-          echo "Testing on Ubuntu 20.04..."
-          
-          echo "File info:"
-          file ./artifacts/recap_parser
-          
-          echo "Dependencies check:"
-          ldd ./artifacts/recap_parser || echo "No dynamic dependencies (good!)"
-          
-          echo "Functionality test:"
-          ./artifacts/recap_parser --help || echo "Failed to run --help"
-
   create-release:
-    needs: [get-info, build-windows, build-ubuntu, test-static-portability]
+    needs: [get-info, build-windows, build-ubuntu]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -245,36 +147,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ needs.get-info.outputs.version }}
-          name: recap_parser v${{ needs.get-info.outputs.version }} (Static Build)
+          name: recap_parser v${{ needs.get-info.outputs.version }}
           draft: false
           prerelease: false
           body: |
-            ## 🚀 Release recap_parser v${{ needs.get-info.outputs.version }}
+            ~[Release] recap_parser v${{ needs.get-info.outputs.version }}
             
-            **Static executables** - No dependencies required!
-            
-            ### 📋 Build Information
-            - **Date**: ${{ needs.get-info.outputs.date }}
-            - **Commit**: ${{ needs.get-info.outputs.shorthash }}
-            - **Type**: Statically linked executables
-            - **Tested**: Ubuntu 20.04+ and Windows 10+
-            
-            ### 📦 Downloads
-            - `recap_parser-*-windows-x64-static.zip` - Windows executable
-            - `recap_parser-*-linux-x64-static.zip` - Linux executable + build info
-            
-            ### ✨ Features
-            - No external dependencies required
-            - Portable across different Linux distributions
-            - Self-contained executables
-            
-            ### 🔧 Usage
-            ```bash
-            # Linux
-            chmod +x recap_parser
-            ./recap_parser --help
-            
-            # Windows  
-            recap_parser.exe --help
-            ```
+            Date: ${{ needs.get-info.outputs.date }}
+            Commit: ${{ needs.get-info.outputs.shorthash }}
           files: artifacts/*.zip
