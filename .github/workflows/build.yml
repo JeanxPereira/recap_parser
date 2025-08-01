@@ -99,7 +99,14 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y g++ make cmake libboost-all-dev libpugixml-dev libfmt-dev libyaml-cpp-dev
+        sudo apt-get install -y \
+          g++ \
+          make \
+          cmake \
+          libboost-all-dev \
+          libpugixml-dev \
+          libfmt-dev \
+          libyaml-cpp-dev
 
     - name: Setup and Build with CMake
       run: |
