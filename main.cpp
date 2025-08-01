@@ -23,6 +23,20 @@ std::string getFileExtension(const std::string& filepath) {
     return extension;
 }
 
+std::string getCleanExtensionName(const std::string& extension) {
+    std::string cleanName = extension;
+    
+    if (!cleanName.empty() && cleanName[0] == '.') {
+        cleanName = cleanName.substr(1);
+    }
+    
+    for (auto& c : cleanName) {
+        c = std::tolower(c);
+    }
+    
+    return cleanName;
+}
+
 bool hasExtension(const std::string& filepath, const std::string& extension) {
     std::string fileExt = getFileExtension(filepath);
 
@@ -78,7 +92,7 @@ private:
 
 bool processFile(const std::string& filepath, const std::string& outputDir,
     const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
-    std::vector<std::string>& failedFiles) {
+    std::vector<std::string>& failedFiles, bool organizeByExtension = false) {
 
     std::streambuf* coutOriginal = nullptr;
     std::streambuf* cerrOriginal = nullptr;
@@ -164,14 +178,37 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
             }
             else if (exportFormat != "none") {
                 std::string originalExtension = fs::path(filepath).extension().string();
-
                 std::string outputExtension = (exportFormat == "xml") ? ".xml" : ".yaml";
-
                 std::string outputFilename = fs::path(filepath).stem().string() + originalExtension + outputExtension;
 
                 std::string outputPath;
                 if (!outputDir.empty()) {
-                    outputPath = (fs::path(outputDir) / outputFilename).string();
+                    if (organizeByExtension) {
+                        std::string extensionFolder = getCleanExtensionName(originalExtension);
+                        
+                        if (extensionFolder.empty()) {
+                            extensionFolder = "others";
+                        }
+                        
+                        fs::path extensionDir = fs::path(outputDir) / extensionFolder;
+                        
+                        if (!fs::exists(extensionDir)) {
+                            try {
+                                fs::create_directories(extensionDir);
+                                std::cout << "Created extension directory: " << extensionDir << std::endl;
+                            }
+                            catch (const fs::filesystem_error& e) {
+                                std::cerr << "Error creating extension directory " << extensionDir << ": " << e.what() << std::endl;
+                                failedFiles.push_back(filepath);
+                                return false;
+                            }
+                        }
+                        
+                        outputPath = (extensionDir / outputFilename).string();
+                    }
+                    else {
+                        outputPath = (fs::path(outputDir) / outputFilename).string();
+                    }
                 }
                 else {
                     outputPath = outputFilename;
@@ -206,7 +243,8 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
 
 void processDirectory(const std::string& dirPath, const std::string& outputDir,
     const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
-    std::vector<std::string>& failedFiles, const std::string& formatFilter = "") {
+    std::vector<std::string>& failedFiles, const std::string& formatFilter = "", 
+    bool organizeByExtension = false) {
 
     Catalog tempCatalog;
     tempCatalog.initialize();
@@ -231,6 +269,9 @@ void processDirectory(const std::string& dirPath, const std::string& outputDir,
     if (!formatFilter.empty()) {
         std::cout << "Filtering for files with extension: " << formatFilter << std::endl;
     }
+    if (organizeByExtension) {
+        std::cout << "Files will be organized by extension in subdirectories." << std::endl;
+    }
 
     try {
         for (const auto& entry : fs::recursive_directory_iterator(dirPath)) {
@@ -239,13 +280,13 @@ void processDirectory(const std::string& dirPath, const std::string& outputDir,
 
                 if (formatFilter.empty()) {
                     if (isSupportedFileType(filePath, tempCatalog)) {
-                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles);
+                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
                     }
                 }
                 else {
                     if (hasExtension(filePath, formatFilter)) {
                         std::cout << "Processing matching file: " << entry.path().filename().string() << std::endl;
-                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles);
+                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
                     }
                 }
             }
@@ -275,7 +316,8 @@ int main(int argc, char* argv[]) {
         ("debug,d", "enable debug mode to show offsets")
         ("recursive,r", po::value<std::string>()->implicit_value(""), "process all supported files in directory recursively. Optionally specify a format to filter by.")
         ("output,o", po::value<std::string>(), "specify output directory for exported files")
-        ("log,l", "export complete log to a txt file");
+        ("log,l", "export complete log to a txt file")
+        ("sort-ext,s", "organize output files in subdirectories by file extension (e.g., aidefinition/, noun/, level/)");
 
     po::positional_options_description p;
     p.add("file", 1);
@@ -294,6 +336,11 @@ int main(int argc, char* argv[]) {
         std::cout << "ReCap Parser for Darkspore" << std::endl;
         std::cout << "Usage: recap_parser [options] <file|directory>" << std::endl;
         std::cout << desc << std::endl;
+        std::cout << "\nExamples:" << std::endl;
+        std::cout << "  recap_parser file.noun --xml -o output/" << std::endl;
+        std::cout << "  recap_parser --recursive --xml -o output/ ./data/" << std::endl;
+        std::cout << "  recap_parser --recursive --xml --sort-ext -o output/ ./data/" << std::endl;
+        std::cout << "    (creates subdirectories: output/noun/, output/level/, output/aidefinition/, etc.)" << std::endl;
         return 0;
     }
 
@@ -301,6 +348,7 @@ int main(int argc, char* argv[]) {
     bool xmlMode = vm.count("xml") > 0;
     bool yamlMode = vm.count("yaml") > 0;
     bool debugMode = vm.count("debug") > 0;
+    bool organizeByExtension = vm.count("sort-ext") > 0;0;
     std::string formatFilter = "";
     bool recursiveMode = false;
 
@@ -322,6 +370,11 @@ int main(int argc, char* argv[]) {
         if (vm["recursive"].as<std::string>() != "") {
             formatFilter = vm["recursive"].as<std::string>();
         }
+    }
+
+    if (organizeByExtension && exportFormat == "none") {
+        std::cerr << "Warning: --sort-ext has no effect without --xml or --yaml export format." << std::endl;
+        organizeByExtension = false;
     }
 
     bool logEnabled = vm.count("log") > 0;
@@ -373,14 +426,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (recursiveMode && fs::is_directory(inputPath)) {
-        processDirectory(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, formatFilter);
+        processDirectory(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, formatFilter, organizeByExtension);
     }
     else if (fs::is_directory(inputPath)) {
         std::cerr << "Input path is a directory. Use --recursive to process all files." << std::endl;
         return 1;
     }
     else {
-        processFile(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles);
+        processFile(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
     }
 
     if (!failedFiles.empty()) {
