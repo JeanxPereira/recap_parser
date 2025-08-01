@@ -107,7 +107,7 @@ jobs:
           rm -rf build
           mkdir -p build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
           make -j$(nproc)
           
       - name: Prepare output directory
