@@ -6,7 +6,6 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# FORÇA LINKAGEM TOTALMENTE ESTÁTICA
 set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libstdc++ -static-libgcc")
 
@@ -27,7 +26,7 @@ set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 
 find_package(PugiXML REQUIRED)
-find_package(Boost REQUIRED COMPONENTS program_options filesystem)
+find_package(Boost REQUIRED CONFIG COMPONENTS program_options filesystem)
 find_package(fmt CONFIG REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
