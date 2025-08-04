@@ -30,7 +30,7 @@
 * `.LootPreferences`
 * `.LootPrefix`
 * `.LootRigblock`
-* `.LootSuffix`
+* `.LootSuffix` `[5.3.0.103 / 5.3.0.127]` 
 * `.MagicNumbers`
 * `.MarkerSet`
 * `.NavPowerTuning`
@@ -59,11 +59,13 @@ recap_parser [options] <file|directory>
 - `--help, -h` - Show help message
 - `--xml` - Export to XML format
 - `--yaml, -y` - Export to YAML format
+- `--silent` - Removes all logs, except error logs
 - `--debug, -d` - Enable debug mode to show offsets
 - `--recursive, -r [extension]` - Process all supported files recursively. Optionally filter by extension
 - `--output, -o <directory>` - Specify output directory for exported files
 - `--log, -l` - Export complete log to a text file
 - `--sort-ext, -s` - : Organize output files in subdirectories by file extension
+- `--game-version` - : Specify game version (5.3.0.103, 5.3.0.127)
 
 ### Examples
 

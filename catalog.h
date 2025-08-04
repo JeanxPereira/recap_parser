@@ -34,7 +34,6 @@ namespace fs = std::experimental::filesystem;
 #include <fmt/core.h>
 #include <fmt/format.h>
 
-
 enum class DataType {
     BOOL,
     INT,
@@ -236,7 +235,6 @@ public:
         return this;
     }
 
-
     StructDefinition* addArray(const std::string& name, const std::string& elementType, size_t offset,
         bool useSecondaryOffset = false, size_t countOffset = 0) {
         members.emplace_back(name, "array", elementType, offset, useSecondaryOffset, false, countOffset);
@@ -278,12 +276,27 @@ public:
     }
 };
 
-struct FileTypeInfo {
+struct VersionedFileTypeInfo {
+    std::string version;
     std::vector<std::string> structTypes;
     size_t secondaryOffsetStart;
 
+    VersionedFileTypeInfo(const std::string& version, const std::vector<std::string>& types, size_t offsetStart = 0)
+        : version(version), structTypes(types), secondaryOffsetStart(offsetStart) {
+    }
+};
+
+struct FileTypeInfo {
+    std::vector<std::string> structTypes;
+    size_t secondaryOffsetStart;
+    std::vector<VersionedFileTypeInfo> versionedInfo;
+
     FileTypeInfo(const std::vector<std::string>& types, size_t offsetStart = 0)
         : structTypes(types), secondaryOffsetStart(offsetStart) {
+    }
+
+    FileTypeInfo(const std::vector<VersionedFileTypeInfo>& versions)
+        : versionedInfo(versions) {
     }
 };
 
@@ -293,9 +306,18 @@ private:
     std::unordered_map<std::string, std::shared_ptr<StructDefinition>> structs;
     std::unordered_map<std::string, FileTypeInfo> fileTypes;
     std::unordered_map<std::string, FileTypeInfo> exactFileNames;
+    std::string currentGameVersion = "5.3.0.103";
 
 public:
     Catalog();
+
+    void setGameVersion(const std::string& version) {
+        currentGameVersion = version;
+    }
+
+    const std::string& getGameVersion() const {
+        return currentGameVersion;
+    }
 
     TypeDefinition* addType(const std::string& name, DataType type, size_t size) {
         types.emplace(name, TypeDefinition(name, type, size));
@@ -316,10 +338,7 @@ public:
         auto structDef = std::make_shared<StructDefinition>(name, fixedSize);
         structs[name] = structDef;
 
-        // direct
         addType("struct:" + name, DataType::STRUCT, fixedSize, name);
-
-        // nullable
         registerNullableType(name);
 
         return structDef;
@@ -373,12 +392,28 @@ public:
         fileTypes.emplace(ext, FileTypeInfo(structTypes, secondaryOffsetStart));
     }
 
+    void registerFileType(const std::string& extension, const std::vector<VersionedFileTypeInfo>& versions) {
+        std::string ext = extension;
+        for (auto& c : ext) {
+            c = std::tolower(c);
+        }
+        fileTypes.emplace(ext, FileTypeInfo(versions));
+    }
+
     void registerFileName(const std::string& fileName, const std::vector<std::string>& structTypes, size_t secondaryOffsetStart = 0) {
         std::string name = fileName;
         for (auto& c : name) {
             c = std::tolower(c);
         }
         exactFileNames.emplace(name, FileTypeInfo(structTypes, secondaryOffsetStart));
+    }
+
+    void registerFileName(const std::string& fileName, const std::vector<VersionedFileTypeInfo>& versions) {
+        std::string name = fileName;
+        for (auto& c : name) {
+            c = std::tolower(c);
+        }
+        exactFileNames.emplace(name, FileTypeInfo(versions));
     }
 
     void registerNullableType(const std::string& targetStructName) {
@@ -403,6 +438,7 @@ public:
         }
         return nullptr;
     }
+
     const FileTypeInfo* getFileType(const std::string& extension) const {
         std::string ext = extension;
         for (auto& c : ext) {
@@ -439,6 +475,20 @@ public:
         return nullptr;
     }
 
+    const VersionedFileTypeInfo* getVersionedFileTypeInfo(const FileTypeInfo* fileTypeInfo) const {
+        if (!fileTypeInfo || fileTypeInfo->versionedInfo.empty()) {
+            return nullptr;
+        }
+
+        for (const auto& versionInfo : fileTypeInfo->versionedInfo) {
+            if (versionInfo.version == currentGameVersion) {
+                return &versionInfo;
+            }
+        }
+
+        return &fileTypeInfo->versionedInfo[0];
+    }
+
     void initialize();
 };
 
@@ -463,6 +513,7 @@ private:
 
     bool processingArrayElement = false;
     bool isProcessingRootTag = false;
+    bool silentMode = false;
     bool debugMode;
     bool exportMode;
     int indentLevel = 0;
@@ -474,6 +525,9 @@ private:
     }
 
     void logParse(const std::string& message) {
+        if (silentMode) {
+            return;
+        }
         if (debugMode) {
             fmt::print("({}, {}) {}{}\n",
                 offsetManager.getPrimaryOffset(),
@@ -489,9 +543,9 @@ private:
     void parseStruct(const std::string& structName, int arrayIndex = -1);
     void parseMember(const StructMember& member, const std::shared_ptr<StructDefinition>& parentStruct, size_t arraySize = 0);
 public:
-    Parser(const Catalog& catalog, const std::string& filename, bool debugMode = false, const std::string& exportFormat = "xml")
+    Parser(const Catalog& catalog, const std::string& filename, bool silentMode = true, bool debugMode = false, const std::string& exportFormat = "xml")
         : catalog(catalog), offsetManager(fileStream), filename(filename),
-        debugMode(debugMode), exportMode(exportFormat != "none") {
+        silentMode(silentMode), debugMode(debugMode), exportMode(exportFormat != "none") {
 
         if (exportFormat != "none") {
             exporter = ExporterFactory::createExporter(exportFormat);

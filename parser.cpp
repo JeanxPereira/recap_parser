@@ -30,14 +30,28 @@ bool Parser::parse() {
         return false;
     }
 
+    const VersionedFileTypeInfo* versionedInfo = catalog.getVersionedFileTypeInfo(fileType);
+
+    std::vector<std::string> structTypes;
+    size_t secondaryOffsetStart = 0;
+
+    if (versionedInfo) {
+        structTypes = versionedInfo->structTypes;
+        secondaryOffsetStart = versionedInfo->secondaryOffsetStart;
+    }
+    else {
+        structTypes = fileType->structTypes;
+        secondaryOffsetStart = fileType->secondaryOffsetStart;
+    }
+
     offsetManager.setPrimaryOffset(0);
-    offsetManager.setSecondaryOffset(fileType->secondaryOffsetStart);
+    offsetManager.setSecondaryOffset(secondaryOffsetStart);
 
     if (exportMode && exporter) {
         exporter->beginDocument();
     }
 
-    for (const auto& structType : fileType->structTypes) {
+    for (const auto& structType : structTypes) {
         isProcessingRootTag = true;
         parseStruct(structType);
         isProcessingRootTag = false;

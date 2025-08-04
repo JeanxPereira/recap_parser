@@ -91,8 +91,8 @@ private:
 };
 
 bool processFile(const std::string& filepath, const std::string& outputDir,
-    const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
-    std::vector<std::string>& failedFiles, bool organizeByExtension = false) {
+    const std::string& exportFormat, bool silentMode, bool debugMode, std::ofstream& logFile,
+    std::vector<std::string>& failedFiles, bool organizeByExtension, const std::string& gameVersion) {
 
     std::streambuf* coutOriginal = nullptr;
     std::streambuf* cerrOriginal = nullptr;
@@ -122,6 +122,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
             std::string filename = fs::path(filepath).filename().string();
 
             Catalog catalog;
+            catalog.setGameVersion(gameVersion);
             catalog.initialize();
 
             if (!isSupportedFileType(filepath, catalog)) {
@@ -167,9 +168,9 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                 return false;
             }
 
-            Parser parser(catalog, filepath, debugMode, exportFormat);
+            Parser parser(catalog, filepath, silentMode, debugMode, exportFormat);
 
-            std::cout << "Parsing \"" << filename << "\"" << std::endl;
+            std::cout << "Parsing \"" << filename << "\" (Game Version: " << gameVersion << ")" << std::endl;
 
             if (!parser.parse()) {
                 std::cerr << "Error parsing file: " << filepath << std::endl;
@@ -185,13 +186,13 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                 if (!outputDir.empty()) {
                     if (organizeByExtension) {
                         std::string extensionFolder = getCleanExtensionName(originalExtension);
-                        
+
                         if (extensionFolder.empty()) {
                             extensionFolder = "others";
                         }
-                        
+
                         fs::path extensionDir = fs::path(outputDir) / extensionFolder;
-                        
+
                         if (!fs::exists(extensionDir)) {
                             try {
                                 fs::create_directories(extensionDir);
@@ -203,7 +204,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                                 return false;
                             }
                         }
-                        
+
                         outputPath = (extensionDir / outputFilename).string();
                     }
                     else {
@@ -242,11 +243,12 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
 }
 
 void processDirectory(const std::string& dirPath, const std::string& outputDir,
-    const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
-    std::vector<std::string>& failedFiles, const std::string& formatFilter = "", 
-    bool organizeByExtension = false) {
+    const std::string& exportFormat, bool silentMode, bool debugMode, std::ofstream& logFile,
+    std::vector<std::string>& failedFiles, const std::string& formatFilter,
+    bool organizeByExtension, const std::string& gameVersion) {
 
     Catalog tempCatalog;
+    tempCatalog.setGameVersion(gameVersion);
     tempCatalog.initialize();
 
     std::streambuf* coutOriginal = nullptr;
@@ -266,6 +268,7 @@ void processDirectory(const std::string& dirPath, const std::string& outputDir,
     }
 
     std::cout << "Processing directory: " << dirPath << std::endl;
+    std::cout << "Game Version: " << gameVersion << std::endl;
     if (!formatFilter.empty()) {
         std::cout << "Filtering for files with extension: " << formatFilter << std::endl;
     }
@@ -280,13 +283,13 @@ void processDirectory(const std::string& dirPath, const std::string& outputDir,
 
                 if (formatFilter.empty()) {
                     if (isSupportedFileType(filePath, tempCatalog)) {
-                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
+                        processFile(filePath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension, gameVersion);
                     }
                 }
                 else {
                     if (hasExtension(filePath, formatFilter)) {
                         std::cout << "Processing matching file: " << entry.path().filename().string() << std::endl;
-                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
+                        processFile(filePath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension, gameVersion);
                     }
                 }
             }
@@ -313,11 +316,13 @@ int main(int argc, char* argv[]) {
         ("file", po::value<std::string>(), "input file or directory to parse")
         ("xml", "export to XML")
         ("yaml,y,yml", "export to YAML")
+        ("silent", "removes all logs, except error logs")
         ("debug,d", "enable debug mode to show offsets")
         ("recursive,r", po::value<std::string>()->implicit_value(""), "process all supported files in directory recursively. Optionally specify a format to filter by.")
         ("output,o", po::value<std::string>(), "specify output directory for exported files")
         ("log,l", "export complete log to a txt file")
-        ("sort-ext,s", "organize output files in subdirectories by file extension (e.g., aidefinition/, noun/, level/)");
+        ("sort-ext,s", "organize output files in subdirectories by file extension (e.g., aidefinition/, noun/, level/)")
+        ("game-version, gv", po::value<std::string>()->default_value("5.3.0.103"), "specify game version (5.3.0.103, 5.3.0.127)");
 
     po::positional_options_description p;
     p.add("file", 1);
@@ -340,6 +345,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  recap_parser file.noun --xml -o output/" << std::endl;
         std::cout << "  recap_parser --recursive --xml -o output/ ./data/" << std::endl;
         std::cout << "  recap_parser --recursive --xml --sort-ext -o output/ ./data/" << std::endl;
+        std::cout << "  recap_parser --game-version 5.3.0.127 file.noun --xml" << std::endl;
         std::cout << "    (creates subdirectories: output/noun/, output/level/, output/aidefinition/, etc.)" << std::endl;
         return 0;
     }
@@ -347,8 +353,10 @@ int main(int argc, char* argv[]) {
     std::string inputPath = vm["file"].as<std::string>();
     bool xmlMode = vm.count("xml") > 0;
     bool yamlMode = vm.count("yaml") > 0;
+    bool silentMode = vm.count("silent") > 0;
     bool debugMode = vm.count("debug") > 0;
-    bool organizeByExtension = vm.count("sort-ext") > 0;0;
+    bool organizeByExtension = vm.count("sort-ext") > 0;
+    std::string gameVersion = vm["game-version"].as<std::string>();
     std::string formatFilter = "";
     bool recursiveMode = false;
 
@@ -426,14 +434,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (recursiveMode && fs::is_directory(inputPath)) {
-        processDirectory(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, formatFilter, organizeByExtension);
+        processDirectory(inputPath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, formatFilter, organizeByExtension, gameVersion);
     }
     else if (fs::is_directory(inputPath)) {
         std::cerr << "Input path is a directory. Use --recursive to process all files." << std::endl;
         return 1;
     }
     else {
-        processFile(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
+        processFile(inputPath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension, gameVersion);
     }
 
     if (!failedFiles.empty()) {
