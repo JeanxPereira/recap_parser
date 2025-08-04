@@ -91,7 +91,7 @@ private:
 };
 
 bool processFile(const std::string& filepath, const std::string& outputDir,
-    const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
+    const std::string& exportFormat, bool silentMode, bool debugMode, std::ofstream& logFile,
     std::vector<std::string>& failedFiles, bool organizeByExtension = false) {
 
     std::streambuf* coutOriginal = nullptr;
@@ -167,7 +167,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
                 return false;
             }
 
-            Parser parser(catalog, filepath, debugMode, exportFormat);
+            Parser parser(catalog, filepath, silentMode, debugMode, exportFormat);
 
             std::cout << "Parsing \"" << filename << "\"" << std::endl;
 
@@ -242,7 +242,7 @@ bool processFile(const std::string& filepath, const std::string& outputDir,
 }
 
 void processDirectory(const std::string& dirPath, const std::string& outputDir,
-    const std::string& exportFormat, bool debugMode, std::ofstream& logFile,
+    const std::string& exportFormat, bool silentMode, bool debugMode, std::ofstream& logFile,
     std::vector<std::string>& failedFiles, const std::string& formatFilter = "", 
     bool organizeByExtension = false) {
 
@@ -280,13 +280,13 @@ void processDirectory(const std::string& dirPath, const std::string& outputDir,
 
                 if (formatFilter.empty()) {
                     if (isSupportedFileType(filePath, tempCatalog)) {
-                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
+                        processFile(filePath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension);
                     }
                 }
                 else {
                     if (hasExtension(filePath, formatFilter)) {
                         std::cout << "Processing matching file: " << entry.path().filename().string() << std::endl;
-                        processFile(filePath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
+                        processFile(filePath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension);
                     }
                 }
             }
@@ -313,6 +313,7 @@ int main(int argc, char* argv[]) {
         ("file", po::value<std::string>(), "input file or directory to parse")
         ("xml", "export to XML")
         ("yaml,y,yml", "export to YAML")
+        ("silent", "removes all logs, except error logs")
         ("debug,d", "enable debug mode to show offsets")
         ("recursive,r", po::value<std::string>()->implicit_value(""), "process all supported files in directory recursively. Optionally specify a format to filter by.")
         ("output,o", po::value<std::string>(), "specify output directory for exported files")
@@ -347,6 +348,7 @@ int main(int argc, char* argv[]) {
     std::string inputPath = vm["file"].as<std::string>();
     bool xmlMode = vm.count("xml") > 0;
     bool yamlMode = vm.count("yaml") > 0;
+    bool silentMode = vm.count("silent") > 0;
     bool debugMode = vm.count("debug") > 0;
     bool organizeByExtension = vm.count("sort-ext") > 0;0;
     std::string formatFilter = "";
@@ -426,14 +428,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (recursiveMode && fs::is_directory(inputPath)) {
-        processDirectory(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, formatFilter, organizeByExtension);
+        processDirectory(inputPath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, formatFilter, organizeByExtension);
     }
     else if (fs::is_directory(inputPath)) {
         std::cerr << "Input path is a directory. Use --recursive to process all files." << std::endl;
         return 1;
     }
     else {
-        processFile(inputPath, outputDir, exportFormat, debugMode, logFile, failedFiles, organizeByExtension);
+        processFile(inputPath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension);
     }
 
     if (!failedFiles.empty()) {
