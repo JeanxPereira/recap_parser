@@ -463,6 +463,7 @@ private:
 
     bool processingArrayElement = false;
     bool isProcessingRootTag = false;
+    bool silentMode = false;
     bool debugMode;
     bool exportMode;
     int indentLevel = 0;
@@ -474,6 +475,9 @@ private:
     }
 
     void logParse(const std::string& message) {
+        if (silentMode) {
+            return;
+        }
         if (debugMode) {
             fmt::print("({}, {}) {}{}\n",
                 offsetManager.getPrimaryOffset(),
@@ -489,9 +493,9 @@ private:
     void parseStruct(const std::string& structName, int arrayIndex = -1);
     void parseMember(const StructMember& member, const std::shared_ptr<StructDefinition>& parentStruct, size_t arraySize = 0);
 public:
-    Parser(const Catalog& catalog, const std::string& filename, bool debugMode = false, const std::string& exportFormat = "xml")
-        : catalog(catalog), offsetManager(fileStream), filename(filename),
-        debugMode(debugMode), exportMode(exportFormat != "none") {
+    Parser(const Catalog& catalog, const std::string& filename, bool silentMode = true, bool debugMode = false,
+        const std::string& exportFormat = "xml") : catalog(catalog), offsetManager(fileStream), filename(filename),
+        silentMode(silentMode), debugMode(debugMode), exportMode(exportFormat != "none") {
 
         if (exportFormat != "none") {
             exporter = ExporterFactory::createExporter(exportFormat);
