@@ -46,14 +46,9 @@ void Catalog::initialize() {
     registerFileType(".LevelConfig", { "LevelConfig" }, 40);
     registerFileType(".LevelObjectives", { "LevelObjectives" }, 40);
     registerFileType(".LootPreferences", { "LootPreferences" }, 0);
-    registerFileType(".LootPrefix", { "LootPrefix" }, 560);
     registerFileType(".LootRigblock", { "LootRigblock" }, 140);
-
-    registerFileType(".LootSuffix", {
-        {"5.3.0.103", {"LootSuffix"}, 580},
-        {"5.3.0.127", {"LootSuffix_127"}, 584}
-        });
-
+    registerFileType(".LootPrefix", { "LootPrefix" }, 564);
+    registerFileType(".LootSuffix", { "LootSuffix" }, 584);
     registerFileType(".MagicNumbers", { "MagicNumbers" }, 0);
     registerFileType(".MarkerSet", { "MarkerSet" }, 40);
     registerFileType(".NavPowerTuning", { "NavPowerTuning" }, 12);
@@ -624,18 +619,18 @@ void Catalog::initialize() {
         LootPrefix->add("xpBoost%", "float", 480);
 
     //   LootSuffix
-    auto LootSuffix = add_struct("LootSuffix");
+        auto LootSuffix = add_struct("LootSuffix");
         LootSuffix->add("suffixId", "uint32_t", 0);
         LootSuffix->add("suffixName", "key", 16);
-        LootSuffix->add("minLevel", "uint32_t", 16); //??? - off_FDAB24
+        LootSuffix->add("minLevel", "uint32_t", 20); //??? - off_FDAB24
         LootSuffix->add("maxLevel", "uint32_t", 24); //??? - off_FDAB24
         LootSuffix->addStructArray("partTypes", LootData, 28);
         LootSuffix->addStructArray("classTypes", LootData, 36);
         LootSuffix->addStructArray("scienceTypes", LootData, 44);
         LootSuffix->add("isUnique", "bool", 52);
         LootSuffix->add("isBasic", "bool", 53);
-        LootSuffix->addStructArray("modifierGranted", LootData, 516);
-        LootSuffix->addStructArray("abilityImproved", LootData, 524);
+        LootSuffix->addStructArray("modifierGranted", LootData, 520);
+        LootSuffix->addStructArray("abilityImproved", LootData, 528);
         LootSuffix->add("strength", "float", 56);
         LootSuffix->add("dexterity", "float", 60);
         LootSuffix->add("mind", "float", 64);
@@ -644,15 +639,15 @@ void Catalog::initialize() {
         LootSuffix->add("mana", "float", 76);
         LootSuffix->add("critical", "float", 96);
         LootSuffix->add("criticalDamage", "float", 144);
+        LootSuffix->add("physicalDefense", "float", 84);
         LootSuffix->add("energyDefense", "float", 92);
         LootSuffix->add("projectileSpeed", "float", 160);
-        LootSuffix->add("cooldown", "float", 152);
         LootSuffix->add("cooldown", "float", 152);
         LootSuffix->add("aoeDamage", "float", 204);
         LootSuffix->add("aoeResistance%", "float", 164);
         LootSuffix->add("movementSpeed", "float", 248);
         LootSuffix->add("lifeSteal", "float", 196);
-        LootSuffix->add("manaSteal", "float", 294);
+        LootSuffix->add("manaSteal", "float", 264);
         LootSuffix->add("attackSpeed", "float", 148);
         LootSuffix->add("damageLifeType", "float", 216);
         LootSuffix->add("damageTechType", "float", 208);
@@ -713,97 +708,6 @@ void Catalog::initialize() {
         LootSuffix->add("attDmg", "float", 488);
         LootSuffix->add("attDmg%", "float", 492);
         LootSuffix->add("xpBoost%", "float", 500);
-
-    //   LootSuffix of latest version (5.3.0.127)
-    auto LootSuffix_127 = add_struct("LootSuffix_127");
-        LootSuffix_127->add("suffixId", "uint32_t", 0);
-        LootSuffix_127->add("suffixName", "key", 16);
-        LootSuffix_127->add("minLevel", "uint32_t", 16); //??? - off_FDAB24
-        LootSuffix_127->add("maxLevel", "uint32_t", 24); //??? - off_FDAB24
-        LootSuffix_127->addStructArray("partTypes", LootData, 28);
-        LootSuffix_127->addStructArray("classTypes", LootData, 36);
-        LootSuffix_127->addStructArray("scienceTypes", LootData, 44);
-        LootSuffix_127->add("isUnique", "bool", 52);
-        LootSuffix_127->add("isBasic", "bool", 53);
-        LootSuffix_127->addStructArray("modifierGranted", LootData, 520);
-        LootSuffix_127->addStructArray("abilityImproved", LootData, 528);
-        LootSuffix_127->add("strength", "float", 56);
-        LootSuffix_127->add("dexterity", "float", 60);
-        LootSuffix_127->add("mind", "float", 64);
-        LootSuffix_127->add("health", "float", 72);
-        LootSuffix_127->add("mana", "float", 76);
-        LootSuffix_127->add("mana", "float", 76);
-        LootSuffix_127->add("critical", "float", 96);
-        LootSuffix_127->add("criticalDamage", "float", 144);
-        LootSuffix_127->add("energyDefense", "float", 92);
-        LootSuffix_127->add("projectileSpeed", "float", 160);
-        LootSuffix_127->add("cooldown", "float", 152);
-        LootSuffix_127->add("cooldown", "float", 152);
-        LootSuffix_127->add("aoeDamage", "float", 204);
-        LootSuffix_127->add("aoeResistance%", "float", 164);
-        LootSuffix_127->add("movementSpeed", "float", 248);
-        LootSuffix_127->add("lifeSteal", "float", 196);
-        LootSuffix_127->add("manaSteal", "float", 294);
-        LootSuffix_127->add("attackSpeed", "float", 148);
-        LootSuffix_127->add("damageLifeType", "float", 216);
-        LootSuffix_127->add("damageTechType", "float", 208);
-        LootSuffix_127->add("damageQuantumType", "float", 212);
-        LootSuffix_127->add("damageNecroType", "float", 224);
-        LootSuffix_127->add("damagePlasmaType", "float", 220);
-        LootSuffix_127->add("resistLifeType", "float", 236);
-        LootSuffix_127->add("resistTechType", "float", 228);
-        LootSuffix_127->add("resistQuantumType", "float", 232);
-        LootSuffix_127->add("resistNecroType", "float", 244);
-        LootSuffix_127->add("resistPlasmaType", "float", 240);
-        LootSuffix_127->add("aoeRadius", "float", 304);
-        LootSuffix_127->add("petDamage", "float", 308);
-        LootSuffix_127->add("petHealth", "float", 312);
-        LootSuffix_127->add("crystalFind%", "float", 316);
-        LootSuffix_127->add("lootFind%", "float", 340);
-        LootSuffix_127->add("dnaDropped%", "float", 320);
-        LootSuffix_127->add("rangeIncrease%", "float", 324);
-        LootSuffix_127->add("orbEffect", "float", 328);
-        LootSuffix_127->add("overdriveBuildup%", "float", 332);
-        LootSuffix_127->add("overdriveDuration%", "float", 336);
-        LootSuffix_127->add("surefooted%", "float", 344);
-        LootSuffix_127->add("buffDuration%", "float", 256);
-        LootSuffix_127->add("debuffShorten%", "float", 260);
-        LootSuffix_127->add("debuffLengthen%", "float", 268);
-        LootSuffix_127->add("dotDamage%", "float", 396);
-        LootSuffix_127->add("aggroInc%", "float", 400);
-        LootSuffix_127->add("aggroDec%", "float", 404);
-        LootSuffix_127->add("physDmg%", "float", 408);
-        LootSuffix_127->add("physAbDmg%", "float", 412);
-        LootSuffix_127->add("energyDmg%", "float", 416);
-        LootSuffix_127->add("energyAbDmg%", "float", 420);
-        LootSuffix_127->add("immStun%", "float", 348);
-        LootSuffix_127->add("immBanish", "float", 296);
-        LootSuffix_127->add("immKnockBack", "float", 300);
-        LootSuffix_127->add("immSleep", "float", 356);
-        LootSuffix_127->add("immTaunt", "float", 360);
-        LootSuffix_127->add("immTerror", "float", 364);
-        LootSuffix_127->add("immSilence", "float", 368);
-        LootSuffix_127->add("immCurse", "float", 372);
-        LootSuffix_127->add("immPoison", "float", 376);
-        LootSuffix_127->add("immBurn", "float", 380);
-        LootSuffix_127->add("immRoot", "float", 384);
-        LootSuffix_127->add("immSlow", "float", 388);
-        LootSuffix_127->add("immPull", "float", 392);
-        LootSuffix_127->add("channelTime%", "float", 424);
-        LootSuffix_127->add("ccDur%", "float", 428);
-        LootSuffix_127->add("dotDur%", "float", 432);
-        LootSuffix_127->add("aoeDurInc%", "float", 436);
-        LootSuffix_127->add("healInc%", "float", 440);
-        LootSuffix_127->add("deploy", "float", 460);
-        LootSuffix_127->add("physDmgDecFlat", "float", 464);
-        LootSuffix_127->add("energyDmgDecFlat", "float", 468);
-        LootSuffix_127->add("minWpnDmg", "float", 472);
-        LootSuffix_127->add("maxWpnDmg", "float", 476);
-        LootSuffix_127->add("minWpnDmg%", "float", 480);
-        LootSuffix_127->add("maxWpnDmg%", "float", 484);
-        LootSuffix_127->add("attDmg", "float", 488);
-        LootSuffix_127->add("attDmg%", "float", 492);
-        LootSuffix_127->add("xpBoost%", "float", 500);
 
     auto cAudioEventData = add_struct("cAudioEventData", 32);
          cAudioEventData->add("sound", "key", 12);
