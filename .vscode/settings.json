@@ -1,8 +1,10 @@
 {
   "files.associations": {
+    "*.dbclient-js": "javascript",
     ".env.*": "dotenv",
     ".prettierrc": "json",
     "*.css": "css",
-    "filesystem": "cpp"
+    "filesystem": "cpp",
+    "iostream": "cpp"
   }
 }

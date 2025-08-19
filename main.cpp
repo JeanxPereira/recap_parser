@@ -1,467 +1,211 @@
 ﻿#include <iostream>
 #include <fstream>
+#include <string>
 #include <vector>
-#include <boost/program_options.hpp>
+#include <memory>
+#include <algorithm>
+#include <cctype>
+#include <unordered_set>
+#include <system_error>
+#include <cstdio>
+
+#include <CLI/CLI.hpp>
+
 #include "catalog.h"
 #include "exporter.h"
 
 #if ((defined(_MSVC_LANG) && _MSVC_LANG >= 201703L) || __cplusplus >= 201703L)
-#include <filesystem>
-namespace fs = std::filesystem;
+  #include <filesystem>
+  namespace fs = std::filesystem;
 #else
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+  #include <experimental/filesystem>
+  namespace fs = std::experimental::filesystem;
 #endif
 
-namespace po = boost::program_options;
+struct TeeStreamBuffer : public std::streambuf {
+    std::streambuf* a;
+    std::streambuf* b;
 
-std::string getFileExtension(const std::string& filepath) {
-    std::string extension = fs::path(filepath).extension().string();
-    for (auto& c : extension) {
-        c = std::tolower(c);
-    }
-    return extension;
-}
+    TeeStreamBuffer(std::streambuf* a_, std::streambuf* b_) : a(a_), b(b_) {}
 
-std::string getCleanExtensionName(const std::string& extension) {
-    std::string cleanName = extension;
-    
-    if (!cleanName.empty() && cleanName[0] == '.') {
-        cleanName = cleanName.substr(1);
-    }
-    
-    for (auto& c : cleanName) {
-        c = std::tolower(c);
-    }
-    
-    return cleanName;
-}
-
-bool hasExtension(const std::string& filepath, const std::string& extension) {
-    std::string fileExt = getFileExtension(filepath);
-
-    std::string extToCompare = extension;
-    if (!extension.empty() && extension[0] != '.') {
-        extToCompare = "." + extension;
+    int overflow(int c) override {
+        if (c == EOF) return !EOF;
+        const int r1 = a ? a->sputc(c) : c;
+        const int r2 = b ? b->sputc(c) : c;
+        return (r1 == EOF || r2 == EOF) ? EOF : c;
     }
 
-    for (auto& c : extToCompare) {
-        c = std::tolower(c);
+    std::streamsize xsputn(const char* s, std::streamsize n) override {
+        const auto w1 = a ? a->sputn(s, n) : n;
+        const auto w2 = b ? b->sputn(s, n) : n;
+        return std::min(w1, w2);
     }
 
-    return fileExt == extToCompare;
-}
-
-bool isSupportedFileType(const std::string& filepath, const Catalog& catalog) {
-    std::string extension = getFileExtension(filepath);
-    const FileTypeInfo* info = catalog.getFileType(extension);
-
-    if (!info) {
-        info = catalog.getFileTypeByName(filepath);
+    int sync() override {
+        const int r1 = a ? a->pubsync() : 0;
+        const int r2 = b ? b->pubsync() : 0;
+        return (r1 == 0 && r2 == 0) ? 0 : -1;
     }
-
-    return info != nullptr;
-}
-
-class TeeStreamBuffer : public std::streambuf {
-public:
-    TeeStreamBuffer(std::streambuf* sb1, std::streambuf* sb2) : sb1(sb1), sb2(sb2) {}
-
-protected:
-    virtual int overflow(int c) {
-        if (c == EOF) {
-            return !EOF;
-        }
-        else {
-            int const r1 = sb1->sputc(c);
-            int const r2 = sb2->sputc(c);
-            return r1 == EOF || r2 == EOF ? EOF : c;
-        }
-    }
-
-    virtual int sync() {
-        int const r1 = sb1->pubsync();
-        int const r2 = sb2->pubsync();
-        return r1 == 0 && r2 == 0 ? 0 : -1;
-    }
-
-private:
-    std::streambuf* sb1;
-    std::streambuf* sb2;
 };
 
-bool processFile(const std::string& filepath, const std::string& outputDir,
-    const std::string& exportFormat, bool silentMode, bool debugMode, std::ofstream& logFile,
-    std::vector<std::string>& failedFiles, bool organizeByExtension, const std::string& gameVersion) {
-
-    std::streambuf* coutOriginal = nullptr;
-    std::streambuf* cerrOriginal = nullptr;
-    TeeStreamBuffer* teeStdout = nullptr;
-    TeeStreamBuffer* teeStderr = nullptr;
-
-    if (logFile.is_open()) {
-        coutOriginal = std::cout.rdbuf();
-        cerrOriginal = std::cerr.rdbuf();
-
-        teeStdout = new TeeStreamBuffer(coutOriginal, logFile.rdbuf());
-        teeStderr = new TeeStreamBuffer(cerrOriginal, logFile.rdbuf());
-
-        std::cout.rdbuf(teeStdout);
-        std::cerr.rdbuf(teeStderr);
-    }
-
-    bool success = true;
-
-    if (!fs::exists(filepath)) {
-        std::cerr << "Error: File " << filepath << " does not exist" << std::endl;
-        failedFiles.push_back(filepath);
-        success = false;
-    }
-    else {
-        try {
-            std::string filename = fs::path(filepath).filename().string();
-
-            Catalog catalog;
-            catalog.setGameVersion(gameVersion);
-            catalog.initialize();
-
-            if (!isSupportedFileType(filepath, catalog)) {
-                std::cerr << "Unsupported file type: " << fs::path(filepath).filename().string() << std::endl;
-
-                std::cerr << "Registered file types:" << std::endl;
-                std::vector<std::string> fileTypes = catalog.getRegisteredFileTypes();
-
-                std::vector<std::string> extensionTypes;
-                std::vector<std::string> exactNameTypes;
-
-                for (const auto& type : fileTypes) {
-                    if (type.find("[exact]") != std::string::npos) {
-                        exactNameTypes.push_back(type);
-                    }
-                    else {
-                        extensionTypes.push_back(type);
-                    }
-                }
-
-                if (!extensionTypes.empty()) {
-                    std::cerr << "\nExtension-based file types:" << std::endl;
-                    const int TYPES_PER_LINE = 2;
-                    for (size_t i = 0; i < extensionTypes.size(); i++) {
-                        if (i > 0 && i % TYPES_PER_LINE == 0) {
-                            std::cerr << std::endl;
-                        }
-                        std::cerr << std::setw(50) << std::left << extensionTypes[i];
-                    }
-                    std::cerr << std::endl;
-                }
-
-                if (!exactNameTypes.empty()) {
-                    std::cerr << "\nExact filename matches:" << std::endl;
-                    for (const auto& type : exactNameTypes) {
-                        std::cerr << "  " << type << std::endl;
-                    }
-                }
-
-                std::cerr << std::endl;
-
-                failedFiles.push_back(filepath);
-                return false;
-            }
-
-            Parser parser(catalog, filepath, silentMode, debugMode, exportFormat);
-
-            std::cout << "Parsing \"" << filename << "\" (Game Version: " << gameVersion << ")" << std::endl;
-
-            if (!parser.parse()) {
-                std::cerr << "Error parsing file: " << filepath << std::endl;
-                failedFiles.push_back(filepath);
-                success = false;
-            }
-            else if (exportFormat != "none") {
-                std::string originalExtension = fs::path(filepath).extension().string();
-                std::string outputExtension = (exportFormat == "xml") ? ".xml" : ".yaml";
-                std::string outputFilename = fs::path(filepath).stem().string() + originalExtension + outputExtension;
-
-                std::string outputPath;
-                if (!outputDir.empty()) {
-                    if (organizeByExtension) {
-                        std::string extensionFolder = getCleanExtensionName(originalExtension);
-
-                        if (extensionFolder.empty()) {
-                            extensionFolder = "others";
-                        }
-
-                        fs::path extensionDir = fs::path(outputDir) / extensionFolder;
-
-                        if (!fs::exists(extensionDir)) {
-                            try {
-                                fs::create_directories(extensionDir);
-                                std::cout << "Created extension directory: " << extensionDir << std::endl;
-                            }
-                            catch (const fs::filesystem_error& e) {
-                                std::cerr << "Error creating extension directory " << extensionDir << ": " << e.what() << std::endl;
-                                failedFiles.push_back(filepath);
-                                return false;
-                            }
-                        }
-
-                        outputPath = (extensionDir / outputFilename).string();
-                    }
-                    else {
-                        outputPath = (fs::path(outputDir) / outputFilename).string();
-                    }
-                }
-                else {
-                    outputPath = outputFilename;
-                }
-
-                parser.exportToFile(outputPath);
-                std::cout << "Exported to " << outputPath << std::endl;
-            }
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Exception while processing file " << filepath << ": " << e.what() << std::endl;
-            failedFiles.push_back(filepath);
-            success = false;
-        }
-        catch (...) {
-            std::cerr << "Unknown exception while processing file " << filepath << std::endl;
-            failedFiles.push_back(filepath);
-            success = false;
-        }
-    }
-
-    if (logFile.is_open()) {
-        std::cout.rdbuf(coutOriginal);
-        std::cerr.rdbuf(cerrOriginal);
-
-        delete teeStdout;
-        delete teeStderr;
-    }
-
-    return success;
+static inline std::string to_lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+    return s;
 }
 
-void processDirectory(const std::string& dirPath, const std::string& outputDir,
-    const std::string& exportFormat, bool silentMode, bool debugMode, std::ofstream& logFile,
-    std::vector<std::string>& failedFiles, const std::string& formatFilter,
-    bool organizeByExtension, const std::string& gameVersion) {
-
-    Catalog tempCatalog;
-    tempCatalog.setGameVersion(gameVersion);
-    tempCatalog.initialize();
-
-    std::streambuf* coutOriginal = nullptr;
-    std::streambuf* cerrOriginal = nullptr;
-    TeeStreamBuffer* teeStdout = nullptr;
-    TeeStreamBuffer* teeStderr = nullptr;
-
-    if (logFile.is_open()) {
-        coutOriginal = std::cout.rdbuf();
-        cerrOriginal = std::cerr.rdbuf();
-
-        teeStdout = new TeeStreamBuffer(coutOriginal, logFile.rdbuf());
-        teeStderr = new TeeStreamBuffer(cerrOriginal, logFile.rdbuf());
-
-        std::cout.rdbuf(teeStdout);
-        std::cerr.rdbuf(teeStderr);
-    }
-
-    std::cout << "Processing directory: " << dirPath << std::endl;
-    std::cout << "Game Version: " << gameVersion << std::endl;
-    if (!formatFilter.empty()) {
-        std::cout << "Filtering for files with extension: " << formatFilter << std::endl;
-    }
-    if (organizeByExtension) {
-        std::cout << "Files will be organized by extension in subdirectories." << std::endl;
-    }
-
-    try {
-        for (const auto& entry : fs::recursive_directory_iterator(dirPath)) {
-            if (entry.is_regular_file()) {
-                std::string filePath = entry.path().string();
-
-                if (formatFilter.empty()) {
-                    if (isSupportedFileType(filePath, tempCatalog)) {
-                        processFile(filePath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension, gameVersion);
-                    }
-                }
-                else {
-                    if (hasExtension(filePath, formatFilter)) {
-                        std::cout << "Processing matching file: " << entry.path().filename().string() << std::endl;
-                        processFile(filePath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension, gameVersion);
-                    }
-                }
-            }
-        }
-    }
-    catch (const fs::filesystem_error& e) {
-        std::cerr << "Filesystem error: " << e.what() << std::endl;
-        failedFiles.push_back(dirPath);
-    }
-
-    if (logFile.is_open()) {
-        std::cout.rdbuf(coutOriginal);
-        std::cerr.rdbuf(cerrOriginal);
-
-        delete teeStdout;
-        delete teeStderr;
-    }
+static inline bool has_any_extension(const fs::path& p, const std::unordered_set<std::string>& exts) {
+    if (exts.empty()) return true;
+    std::string e = to_lower(p.extension().string());
+    if (!e.empty() && e[0] == '.') e.erase(0,1);
+    return exts.count(e) > 0;
 }
 
-int main(int argc, char* argv[]) {
-    po::options_description desc("Allowed options");
-    desc.add_options()
-        ("help,h", "produce help message")
-        ("file", po::value<std::string>(), "input file or directory to parse")
-        ("xml", "export to XML")
-        ("yaml,y,yml", "export to YAML")
-        ("silent", "removes all logs, except error logs")
-        ("debug,d", "enable debug mode to show offsets")
-        ("recursive,r", po::value<std::string>()->implicit_value(""), "process all supported files in directory recursively. Optionally specify a format to filter by.")
-        ("output,o", po::value<std::string>(), "specify output directory for exported files")
-        ("log,l", "export complete log to a txt file")
-        ("sort-ext,s", "organize output files in subdirectories by file extension (e.g., aidefinition/, noun/, level/)")
-        ("game-version, gv", po::value<std::string>()->default_value("5.3.0.103"), "specify game version (5.3.0.103, 5.3.0.127)");
-
-    po::positional_options_description p;
-    p.add("file", 1);
-
-    po::variables_map vm;
-    try {
-        po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
-        po::notify(vm);
+static inline std::unordered_set<std::string> parse_ext_filter(const std::string& filter) {
+    std::unordered_set<std::string> out;
+    if (filter.empty()) return out;
+    std::string tmp;
+    for (char c : filter) {
+        if (c == ',' || c == ';' || std::isspace(static_cast<unsigned char>(c))) {
+            if (!tmp.empty()) { out.insert(to_lower(tmp)); tmp.clear(); }
+        } else if (c == '.') {
+        } else {
+            tmp.push_back(c);
+        }
     }
-    catch (const po::error& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
+    if (!tmp.empty()) out.insert(to_lower(tmp));
+    return out;
+}
 
-    if (vm.count("help") || !vm.count("file")) {
-        std::cout << "ReCap Parser for Darkspore" << std::endl;
-        std::cout << "Usage: recap_parser [options] <file|directory>" << std::endl;
-        std::cout << desc << std::endl;
-        std::cout << "\nExamples:" << std::endl;
-        std::cout << "  recap_parser file.noun --xml -o output/" << std::endl;
-        std::cout << "  recap_parser --recursive --xml -o output/ ./data/" << std::endl;
-        std::cout << "  recap_parser --recursive --xml --sort-ext -o output/ ./data/" << std::endl;
-        std::cout << "  recap_parser --game-version 5.3.0.127 file.noun --xml" << std::endl;
-        std::cout << "    (creates subdirectories: output/noun/, output/level/, output/aidefinition/, etc.)" << std::endl;
-        return 0;
-    }
+static inline void ensure_dir(const fs::path& p) {
+    std::error_code ec;
+    fs::create_directories(p, ec);
+}
 
-    std::string inputPath = vm["file"].as<std::string>();
-    bool xmlMode = vm.count("xml") > 0;
-    bool yamlMode = vm.count("yaml") > 0;
-    bool silentMode = vm.count("silent") > 0;
-    bool debugMode = vm.count("debug") > 0;
-    bool organizeByExtension = vm.count("sort-ext") > 0;
-    std::string gameVersion = vm["game-version"].as<std::string>();
-    std::string formatFilter = "";
+int main(int argc, char** argv) {
+    CLI::App app{"ReCap Parser"};
+
+    std::string inputPath;
+    bool xmlMode = false;
+    bool yamlMode = false;
+    bool silentMode = false;
+    bool debugMode = false;
+    std::string outputDir;
+    bool logEnabled = false;
+    bool organizeByExtension = false;
+    std::string gameVersion = "5.3.0.103";
     bool recursiveMode = false;
+    std::string recursiveFilter;
 
-    if (xmlMode && yamlMode) {
-        std::cerr << "Error: Cannot specify both --xml and --yaml at the same time." << std::endl;
-        return 1;
-    }
+    app.add_option("file", inputPath)->required();
+    app.add_flag("--xml", xmlMode);
+    app.add_flag("--yaml,--yml,-y", yamlMode);
+    app.add_flag("--silent", silentMode);
+    app.add_flag("--debug,-d", debugMode);
+    app.add_option("--output,-o", outputDir);
+    app.add_flag("--log,-l", logEnabled);
+    app.add_flag("--sort-ext,-s", organizeByExtension);
+    app.add_option("--game-version,--gv", gameVersion);
+    CLI::Option* optRecursive = app.add_option("--recursive,-r", recursiveFilter)->expected(0,1);
+    CLI11_PARSE(app, argc, argv);
+    recursiveMode = optRecursive->count() > 0;
+    if (xmlMode && yamlMode) { std::cerr << "Error: --xml and --yaml are mutually exclusive\n"; return 1; }
+
 
     std::string exportFormat = "none";
-    if (xmlMode) {
-        exportFormat = "xml";
-    }
-    else if (yamlMode) {
-        exportFormat = "yaml";
-    }
-
-    if (vm.count("recursive")) {
-        recursiveMode = true;
-        if (vm["recursive"].as<std::string>() != "") {
-            formatFilter = vm["recursive"].as<std::string>();
-        }
-    }
-
-    if (organizeByExtension && exportFormat == "none") {
-        std::cerr << "Warning: --sort-ext has no effect without --xml or --yaml export format." << std::endl;
-        organizeByExtension = false;
-    }
-
-    bool logEnabled = vm.count("log") > 0;
-
-    std::string outputDir = "";
-    if (vm.count("output")) {
-        outputDir = vm["output"].as<std::string>();
-        if (!fs::exists(outputDir)) {
-            try {
-                fs::create_directories(outputDir);
-                std::cout << "Created output directory: " << outputDir << std::endl;
-            }
-            catch (const fs::filesystem_error& e) {
-                std::cerr << "Error creating output directory: " << e.what() << std::endl;
-                return 1;
-            }
-        }
-    }
+    if (xmlMode) exportFormat = "xml";
+    else if (yamlMode) exportFormat = "yaml";
 
     std::ofstream logFile;
-    std::string logPath;
-    if (logEnabled) {
-        logPath = "parser_log.txt";
+    std::streambuf* coutOrig = nullptr;
+    std::streambuf* cerrOrig = nullptr;
+    std::unique_ptr<TeeStreamBuffer> teeOut;
+    std::unique_ptr<TeeStreamBuffer> teeErr;
 
-        logFile.open(logPath);
-        if (!logFile.is_open()) {
-            std::cerr << "Failed to open log file: " << logPath << std::endl;
-            return 1;
+    if (logEnabled) {
+        logFile.open("recap_parser.log", std::ios::out | std::ios::trunc);
+        if (logFile.is_open()) {
+            coutOrig = std::cout.rdbuf();
+            cerrOrig = std::cerr.rdbuf();
+            teeOut = std::make_unique<TeeStreamBuffer>(coutOrig, logFile.rdbuf());
+            teeErr = std::make_unique<TeeStreamBuffer>(cerrOrig, logFile.rdbuf());
+            std::cout.rdbuf(teeOut.get());
+            std::cerr.rdbuf(teeErr.get());
         }
-        std::cout << "Logging to: " << logPath << std::endl;
     }
 
     std::vector<std::string> failedFiles;
+    std::unordered_set<std::string> extFilter = parse_ext_filter(recursiveFilter);
 
-    std::streambuf* coutOriginal = nullptr;
-    std::streambuf* cerrOriginal = nullptr;
-    TeeStreamBuffer* teeStdout = nullptr;
-    TeeStreamBuffer* teeStderr = nullptr;
-
-    if (logEnabled) {
-        coutOriginal = std::cout.rdbuf();
-        cerrOriginal = std::cerr.rdbuf();
-
-        teeStdout = new TeeStreamBuffer(coutOriginal, logFile.rdbuf());
-        teeStderr = new TeeStreamBuffer(cerrOriginal, logFile.rdbuf());
-
-        std::cout.rdbuf(teeStdout);
-        std::cerr.rdbuf(teeStderr);
-    }
-
-    if (recursiveMode && fs::is_directory(inputPath)) {
-        processDirectory(inputPath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, formatFilter, organizeByExtension, gameVersion);
-    }
-    else if (fs::is_directory(inputPath)) {
-        std::cerr << "Input path is a directory. Use --recursive to process all files." << std::endl;
+    fs::path in = inputPath;
+    if (!fs::exists(in)) {
+        std::cerr << "Error: path not found: " << inputPath << "\n";
+        if (logFile.is_open()) {
+            std::cout.rdbuf(coutOrig);
+            std::cerr.rdbuf(cerrOrig);
+        }
         return 1;
     }
-    else {
-        processFile(inputPath, outputDir, exportFormat, silentMode, debugMode, logFile, failedFiles, organizeByExtension, gameVersion);
-    }
 
-    if (!failedFiles.empty()) {
-        std::cout << "\nThe following " << failedFiles.size() << " files failed to process:" << std::endl;
+    auto process_one = [&](const fs::path& file) {
+        Catalog tempCatalog;
+        tempCatalog.setGameVersion(gameVersion);
+        try {
+            Parser parser(tempCatalog, file.string(), silentMode, debugMode, exportFormat);
+            if (!parser.parse()) {
+                failedFiles.push_back(file.string());
+                return;
+            }
+            if (exportFormat != "none") {
+                fs::path baseOut = outputDir.empty() ? file.parent_path() : fs::path(outputDir);
+                fs::path targetDir = baseOut;
+                if (organizeByExtension) {
+                    std::string e = to_lower(file.extension().string());
+                    if (!e.empty() && e[0]=='.') e.erase(0,1);
+                    targetDir /= e.empty() ? "unknown" : e;
+                }
+                ensure_dir(targetDir);
 
-        for (const auto& file : failedFiles) {
-            std::cout << "  - " << file << std::endl;
+                fs::path outName = file.stem();
+                if (exportFormat == "xml") outName += ".xml";
+                else if (exportFormat == "yaml") outName += ".yaml";
+                fs::path outPath = targetDir / outName;
+                parser.exportToFile(outPath.string());
+            }
+        } catch (const std::exception& e) {
+            failedFiles.push_back(file.string());
+            if (!silentMode) std::cerr << "Parse failed: " << file << " : " << e.what() << "\n";
         }
-    }
+    };
 
-    if (logEnabled) {
-        std::cout.rdbuf(coutOriginal);
-        std::cerr.rdbuf(cerrOriginal);
-
-        delete teeStdout;
-        delete teeStderr;
+    if (fs::is_regular_file(in)) {
+        process_one(in);
+    } else if (fs::is_directory(in)) {
+        if (recursiveMode) {
+            for (auto it = fs::recursive_directory_iterator(in); it != fs::recursive_directory_iterator(); ++it) {
+                if (!it->is_regular_file()) continue;
+                const fs::path& p = it->path();
+                if (!has_any_extension(p, extFilter)) continue;
+                process_one(p);
+            }
+        } else {
+            for (auto& de : fs::directory_iterator(in)) {
+                if (!de.is_regular_file()) continue;
+                const fs::path& p = de.path();
+                process_one(p);
+            }
+        }
+    } else {
+        std::cerr << "Error: path type not supported\n";
+        if (logFile.is_open()) {
+            std::cout.rdbuf(coutOrig);
+            std::cerr.rdbuf(cerrOrig);
+        }
+        return 1;
     }
 
     if (logFile.is_open()) {
-        logFile.close();
+        std::cout.rdbuf(coutOrig);
+        std::cerr.rdbuf(cerrOrig);
     }
 
     return failedFiles.empty() ? 0 : 1;

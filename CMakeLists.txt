@@ -18,13 +18,11 @@ FetchContent_Declare(
   GIT_TAG origin/master)
 FetchContent_MakeAvailable(CPM)
 
-set(BOOST_INCLUDE_LIBRARIES "program_options;filesystem")
 CPMAddPackage(
-  NAME Boost
-  VERSION 1.84.0
-  URL https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.xz
-  URL_HASH SHA256=2e64e5d79a738d0fa6fb546c6e5c2bd28f88d268a2a080546f74e5ff98f29d0e
-  OPTIONS "BOOST_ENABLE_CMAKE ON")
+  NAME CLI11
+  GITHUB_REPOSITORY CLIUtils/CLI11
+  VERSION 2.4.2
+)
 
 CPMAddPackage("gh:fmtlib/fmt#10.2.1")
 
@@ -46,8 +44,7 @@ target_include_directories(recap_parser PRIVATE
 target_link_libraries(recap_parser PRIVATE
   -Wl,-Bstatic
   pugixml
-  Boost::program_options
-  Boost::filesystem
+  CLI11::CLI11
   fmt::fmt
   yaml-cpp
   -Wl,-Bdynamic
