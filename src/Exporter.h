@@ -161,14 +161,6 @@ public:
     bool saveToFile(const std::string& filepath) override {
         return xmlDoc.save_file(filepath.c_str());
     }
-
-    pugi::xml_document& getDocument() {
-        return xmlDoc;
-    }
-
-    pugi::xml_node getCurrentNode() {
-        return nodeStack.top();
-    }
 };
 
 class YamlExporter : public FormatExporter {

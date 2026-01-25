@@ -1,0 +1,44 @@
+name: ci
+on:
+  push: { branches: [ main ] }
+  pull_request: { branches: [ main ] }
+env:
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: choco install ninja --no-progress -y
+      - uses: mozilla-actions/sccache@v0.0.3
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+      - run: git clone https://github.com/microsoft/vcpkg.git && cd vcpkg && .\bootstrap-vcpkg.bat
+      - env: { VCPKG_ROOT: ${{ github.workspace }}\vcpkg, SCCACHE_GHA_ENABLED: "1" }
+        run: cmake --preset win-msvc
+      - run: cmake --build --preset win-release -j
+      - run: cmake --build --preset win-package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recap_parser-windows-x64
+          path: build/win-msvc/_CPack_Packages/*/*/*.zip
+  linux-musl:
+    runs-on: ubuntu-24.04
+    container: alpine:3.20
+    steps:
+      - uses: actions/checkout@v4
+      - run: apk add --no-progress build-base cmake ninja git ccache zip
+      - run: git clone https://github.com/microsoft/vcpkg.git && cd vcpkg && ./bootstrap-vcpkg.sh
+      - env:
+          VCPKG_ROOT: /github/workspace/vcpkg
+          VCPKG_FORCE_SYSTEM_BINARIES: "1"
+        run: cmake --preset linux-musl
+      - run: cmake --build --preset linux-musl-release -j
+      - run: cmake --build --preset linux-musl-package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recap_parser-linux-musl-x64
+          path: build/linux-musl/_CPack_Packages/*/*/*.tar.gz

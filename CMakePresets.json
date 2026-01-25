@@ -1,0 +1,39 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 30 },
+  "configurePresets": [
+    {
+      "name": "base-ninja",
+      "generator": "Ninja",
+      "binaryDir": "build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CPM_SOURCE_CACHE": "$env{USERPROFILE}/.cache/CPM"
+      }
+    },
+    {
+      "name": "win-mingw-gcc",
+      "inherits": "base-ninja",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "x86_64-w64-mingw32-gcc",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
+        "RECAP_FULL_STATIC": "ON",
+        "RECAP_ENABLE_LTO": "ON"
+      }
+    },
+    {
+      "name": "win-mingw-clang",
+      "inherits": "base-ninja",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "RECAP_FULL_STATIC": "ON",
+        "RECAP_ENABLE_LTO": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "win-mingw-gcc-release", "configurePreset": "win-mingw-gcc", "configuration": "Release", "jobs": 0 },
+    { "name": "win-mingw-clang-release", "configurePreset": "win-mingw-clang", "configuration": "Release", "jobs": 0 }
+  ]
+}

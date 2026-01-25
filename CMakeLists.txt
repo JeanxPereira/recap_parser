@@ -1,67 +1,86 @@
-cmake_minimum_required(VERSION 3.20)
-project(recap_parser VERSION 1.0.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.30)
+project(recap_parser LANGUAGES C CXX RC)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+option(RECAP_ENABLE_LTO "Enable IPO/LTO" ON)
+option(RECAP_FULL_STATIC "Link statically on MinGW" ON)
 
 if(MSVC)
-  add_compile_options(/utf-8)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 include(FetchContent)
-FetchContent_Declare(
-  CPM
-  GIT_REPOSITORY https://github.com/cpm-cmake/CPM.cmake
-  GIT_TAG origin/master)
-FetchContent_MakeAvailable(CPM)
+set(CPM_DOWNLOAD_VERSION 0.42.0)
+set(_cpm "${CMAKE_BINARY_DIR}/cmake/CPM.cmake")
+if(NOT EXISTS "${_cpm}")
+  file(DOWNLOAD "https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.42.0/CPM.cmake" "${_cpm}" TLS_VERIFY ON)
+endif()
+include("${_cpm}")
 
-CPMAddPackage(
-  NAME CLI11
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+CPMAddPackage(NAME fmt
+  GITHUB_REPOSITORY fmtlib/fmt
+  GIT_TAG 11.2.0)
+
+CPMAddPackage(NAME CLI11
   GITHUB_REPOSITORY CLIUtils/CLI11
-  VERSION 2.4.2
-)
+  GIT_TAG v2.5.0
+  OPTIONS "CLI11_PRECOMPILED OFF")
 
-CPMAddPackage("gh:fmtlib/fmt#10.2.1")
+CPMAddPackage(NAME pugixml
+  GITHUB_REPOSITORY zeux/pugixml
+  GIT_TAG v1.15
+  OPTIONS "PUGIXML_BUILD_TESTS OFF" "PUGIXML_BUILD_SAMPLES OFF")
 
-CPMAddPackage("gh:jbeder/yaml-cpp#0.8.0")
+CPMAddPackage(NAME yaml-cpp
+  GITHUB_REPOSITORY jbeder/yaml-cpp
+  GIT_TAG c268020
+  OPTIONS "YAML_CPP_BUILD_TESTS OFF" "YAML_CPP_BUILD_TOOLS OFF" "YAML_BUILD_SHARED_LIBS OFF")
 
-CPMAddPackage("gh:zeux/pugixml#v1.13")
-
-add_executable(recap_parser
-  main.cpp 
-  catalog.cpp
+set(src
+  main.cpp
   parser.cpp
-  Resource.rc
+  catalog.cpp
 )
-
-target_include_directories(recap_parser PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(recap_parser PRIVATE
-  -Wl,-Bstatic
-  pugixml
-  CLI11::CLI11
-  fmt::fmt
-  yaml-cpp
-  -Wl,-Bdynamic
-  -ldl -lpthread -lm -lrt
-)
-
-install(TARGETS recap_parser DESTINATION bin)
-
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/res DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/icon1.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 if(WIN32)
-  add_custom_command(TARGET recap_parser POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE_DIR:recap_parser>
-      $<TARGET_FILE:pugixml>
-      $<TARGET_FILE:yaml-cpp>
-      $<TARGET_FILE:fmt::fmt>
-  )
+  list(APPEND src Resource.rc)
 endif()
+
+add_executable(recap_parser ${src})
+
+target_link_libraries(recap_parser
+  PRIVATE
+    fmt::fmt
+    CLI11::CLI11
+    yaml-cpp
+    pugixml
+)
+
+target_include_directories(recap_parser PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(MSVC)
+  target_compile_options(recap_parser PRIVATE /W4 /permissive- /Zc:preprocessor)
+else()
+  target_compile_options(recap_parser PRIVATE -Wall -Wextra -Wpedantic -fno-omit-frame-pointer)
+endif()
+
+if(RECAP_ENABLE_LTO)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT _ipo)
+  if(_ipo)
+    set_property(TARGET recap_parser PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  endif()
+endif()
+
+if(MINGW AND RECAP_FULL_STATIC)
+  target_link_options(recap_parser PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+set_target_properties(recap_parser PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)

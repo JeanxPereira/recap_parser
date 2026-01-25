@@ -1,4 +1,4 @@
-﻿#include "catalog.h"
+﻿#include "AssetCatalog.h"
 
 Catalog::Catalog() {
     initialize();
@@ -34,7 +34,7 @@ void Catalog::initialize() {
     registerFileType(".AIDefinition", { "AIDefinition" }, 640);
     registerFileName("catalog_131", { "Catalog" }, 8);
     registerFileType(".ChainLevels", { "ChainLevels" }, 12);
-    registerFileType(".CharacterAnimation", { "CharacterAnimation" }, 660);
+    registerFileType(".CharacterAnimation", { "CharacterAnimation" }, 676);
     registerFileType(".CharacterType", { "CharacterType" }, 0);
     registerFileType(".ClassAttributes", { "ClassAttributes" }, 0);
     registerFileType(".Condition", { "Condition" }, 36);
@@ -56,8 +56,8 @@ void Catalog::initialize() {
     registerFileType(".Noun", { "Noun" }, 480);
     registerFileType(".NPCAffix", { "NPCAffix" }, 44);
     registerFileType(".ObjectExtents", { "ObjectExtents" }, 0);
-    registerFileType(".Phase", { "Phase" }, 68);
-    registerFileType(".PlayerClass", { "PlayerClass" }, 256);
+    registerFileType(".Phase", { "Phase" }, 16);
+    registerFileType(".PlayerClass", { "PlayerClass" }, 252);
     registerFileType(".PVPLevels", { "PVPLevels" }, 8);
     registerFileType(".SectionConfig", { "SectionConfig" }, 8);
     registerFileType(".ServerEventDef", { "ServerEventDef" }, 16);
@@ -66,142 +66,158 @@ void Catalog::initialize() {
     registerFileType(".UnlocksTuning", { "UnlocksTuning" }, 40);
     registerFileType(".WeaponTuning", { "WeaponTuning" }, 8);
 
+
+    auto cAssetProperty = add_struct("cAssetProperty", 188);
+         cAssetProperty->add("name", "char", 4);
+         cAssetProperty->add("value", "char", 88);
+         cAssetProperty->add("GUID", "uint32_t", 0);
+         cAssetProperty->add("type", "uint32_t", 84);
+    auto cAssetPropertyList = add_struct("cAssetPropertyList", 8);
+         cAssetPropertyList->addStructArray("mpAssetProperties", cAssetProperty, 0);
+         cAssetPropertyList->add("mpAssetProperties", "uint32_t", 0);
+
+    auto cGambitDefinition = add_struct("cGambitDefinition", 52);
+         cGambitDefinition->add("condition", "key", 12);
+         cGambitDefinition->addStructArray("conditionProps", cAssetProperty, 16);
+         cGambitDefinition->add("ability", "key", 36);
+         cGambitDefinition->addStructArray("abilityProps", cAssetProperty, 40);
+         cGambitDefinition->add("randomizeCooldown", "bool", 48);
+
     //  Phase
     auto phase = add_struct("Phase");
-    phase->add("gambit", "array", 0);
-    phase->add("phaseType", "enum", 4);
-    phase->add("cGambitDefinition", "key", 52);
-    phase->add("startNode", "bool", 12);
+         phase->addStructArray("gambit", cGambitDefinition, 0);
+         phase->add("phaseType", "enum", 8);
+         phase->add("startNode", "bool", 12);
 
     //  Noun
     auto noun = add_struct("Noun");
-    noun->add("nounType", "enum", 0);
-    noun->add("clientOnly", "bool", 4);
-    noun->add("isFixed", "bool", 5);
-    noun->add("isSelfPowered", "bool", 6);
-    noun->add("lifetime", "float", 12);
-    noun->add("gfxPickMethod", "enum", 8);
-    noun->add("graphicsScale", "float", 20);
-    noun->add("modelKey", "key", 36);
-    noun->add("prefab", "key", 16);
-    noun->add("levelEditorModelKey", "key", 52);
+         noun->add("nounType", "enum", 0);
+         noun->add("clientOnly", "bool", 4);
+         noun->add("isFixed", "bool", 5);
+         noun->add("isSelfPowered", "bool", 6);
+         noun->add("lifetime", "float", 12);
+         noun->add("gfxPickMethod", "enum", 8);
+         noun->add("graphicsScale", "float", 20);
+         noun->add("modelKey", "key", 36);
+         noun->add("prefab", "key", 16);
+         noun->add("levelEditorModelKey", "key", 52);
 
-    auto cSPBoundingBox = add_struct("cSPBoundingBox");
-    cSPBoundingBox->add("min", "cSPVector3", 32);
-    cSPBoundingBox->add("max", "cSPVector3", 44);
-    noun->add(cSPBoundingBox, 24);
+         auto cSPBoundingBox = add_struct("cSPBoundingBox");
+             cSPBoundingBox->add("min", "cSPVector3", 32);
+             cSPBoundingBox->add("max", "cSPVector3", 44);
+         noun->add(cSPBoundingBox, 24);
 
-    noun->add("presetExtents", "enum", 80);
-    noun->add("voice", "key", 96);
-    noun->add("foot", "key", 112);
-    noun->add("flightSound", "key", 128);
+         noun->add("presetExtents", "enum", 80);
+         noun->add("voice", "key", 96);
+         noun->add("foot", "key", 112);
+         noun->add("flightSound", "key", 128);
 
-    auto cGameObjectGfxStates = add_struct("gfxStates", 8);
-            auto cGameObjectGfxStateData = add_struct("state", 56);
-                 cGameObjectGfxStateData->add("name", "key", 12);
-                 cGameObjectGfxStateData->add("model", "key", 28);
-                 cGameObjectGfxStateData->add("prefab", "asset", 48);
-                 cGameObjectGfxStateData->add("animation", "key", 44);
-                 cGameObjectGfxStateData->add("animationLoops", "bool", 52);
-    cGameObjectGfxStates->addStructArray("state", cGameObjectGfxStateData, 0);
-    registerNullableType("gfxStates");
+         auto cGameObjectGfxStates = add_struct("gfxStates", 8);
+              auto cGameObjectGfxStateData = add_struct("state", 56);
+                  cGameObjectGfxStateData->add("name", "key", 12);
+                  cGameObjectGfxStateData->add("model", "key", 28);
+                  cGameObjectGfxStateData->add("prefab", "asset", 48);
+                  cGameObjectGfxStateData->add("animation", "key", 44);
+                  cGameObjectGfxStateData->add("animationLoops", "bool", 52);
+              cGameObjectGfxStates->addStructArray("state", cGameObjectGfxStateData, 0);
+        registerNullableType("gfxStates");
 
-    noun->add("gfxStates", "nullable", cGameObjectGfxStates, 132);
+        noun->add("gfxStates", "nullable", cGameObjectGfxStates, 132);
 
-    auto cNewGfxState = add_struct("cNewGfxState", 40);
-            cNewGfxState->add("prefab", "asset", 0);
-            cNewGfxState->add("model", "key", 16);
-            cNewGfxState->add("animation", "key", 32);
-    registerNullableType("cNewGfxState");
+        auto cNewGfxState = add_struct("cNewGfxState", 40);
+                cNewGfxState->add("prefab", "asset", 0);
+                cNewGfxState->add("model", "key", 16);
+                cNewGfxState->add("animation", "key", 32);
+        registerNullableType("cNewGfxState");
 
-    auto cDoorDef = add_struct("doorDef", 24);
-        cDoorDef->add("graphicsState_open", "nullable", cNewGfxState, 0);
-        cDoorDef->add("graphicsState_opening", "nullable", cNewGfxState, 4);
-        cDoorDef->add("graphicsState_closed", "nullable", cNewGfxState, 8);
-        cDoorDef->add("graphicsState_closing", "nullable", cNewGfxState, 12);
-        cDoorDef->add("clickToOpen", "bool", 16);
-        cDoorDef->add("clickToClose", "bool", 17);
-        cDoorDef->add("initialState", "enum", 20);
-    registerNullableType("doorDef");
-    noun->add("doorDef", "nullable", cDoorDef, 136);
+        auto cDoorDef = add_struct("doorDef", 24);
+            cDoorDef->add("graphicsState_open", "nullable", cNewGfxState, 0);
+            cDoorDef->add("graphicsState_opening", "nullable", cNewGfxState, 4);
+            cDoorDef->add("graphicsState_closed", "nullable", cNewGfxState, 8);
+            cDoorDef->add("graphicsState_closing", "nullable", cNewGfxState, 12);
+            cDoorDef->add("clickToOpen", "bool", 16);
+            cDoorDef->add("clickToClose", "bool", 17);
+            cDoorDef->add("initialState", "enum", 20);
+        registerNullableType("doorDef");
+        noun->add("doorDef", "nullable", cDoorDef, 136);
 
-    auto cSwitchDef = add_struct("switchDef", 12);
-         cSwitchDef->add("graphicsState_unpressed", "nullable", cNewGfxState, 0);
-         cSwitchDef->add("graphicsState_pressing", "nullable", cNewGfxState, 4);
-         cSwitchDef->add("graphicsState_pressed", "nullable", cNewGfxState, 8);
-    registerNullableType("switchDef");
-    noun->add("switchDef", "nullable", cSwitchDef, 140);
+        auto cSwitchDef = add_struct("switchDef", 12);
+             cSwitchDef->add("graphicsState_unpressed", "nullable", cNewGfxState, 0);
+             cSwitchDef->add("graphicsState_pressing", "nullable", cNewGfxState, 4);
+             cSwitchDef->add("graphicsState_pressed", "nullable", cNewGfxState, 8);
+        registerNullableType("switchDef");
+        noun->add("switchDef", "nullable", cSwitchDef, 140);
 
-    auto cPressureSwitchDef = add_struct("pressureSwitchDef", 40);
-         cPressureSwitchDef->add("graphicsState_unpressed", "nullable", cNewGfxState, 0);
-         cPressureSwitchDef->add("graphicsState_pressing", "nullable", cNewGfxState, 4);
-         cPressureSwitchDef->add("graphicsState_pressed", "nullable", cNewGfxState, 8);
-         auto cVolumeDef = add_struct("cVolumeDef");
-              cVolumeDef->add("shape", "enum", 0);
-              cVolumeDef->add("boxWidth", "float", 4);
-              cVolumeDef->add("boxLength", "float", 8);
-              cVolumeDef->add("boxHeight", "float", 12);
-              cVolumeDef->add("sphereRadius", "float", 16);
-              cVolumeDef->add("capsuleHeight", "float", 20);
-              cVolumeDef->add("capsuleRadius", "float", 24);
-         cPressureSwitchDef->add(cVolumeDef, 28);
-    registerNullableType("pressureSwitchDef");
-    noun->add("pressureSwitchDef", "nullable", cPressureSwitchDef, 144);
+        auto cPressureSwitchDef = add_struct("pressureSwitchDef", 40);
+             cPressureSwitchDef->add("graphicsState_unpressed", "nullable", cNewGfxState, 0);
+             cPressureSwitchDef->add("graphicsState_pressing", "nullable", cNewGfxState, 4);
+             cPressureSwitchDef->add("graphicsState_pressed", "nullable", cNewGfxState, 8);
+             auto cVolumeDef = add_struct("cVolumeDef");
+                  cVolumeDef->add("shape", "enum", 0);
+                  cVolumeDef->add("boxWidth", "float", 4);
+                  cVolumeDef->add("boxLength", "float", 8);
+                  cVolumeDef->add("boxHeight", "float", 12);
+                  cVolumeDef->add("sphereRadius", "float", 16);
+                  cVolumeDef->add("capsuleHeight", "float", 20);
+                  cVolumeDef->add("capsuleRadius", "float", 24);
+             cPressureSwitchDef->add(cVolumeDef, 28);
+        registerNullableType("pressureSwitchDef");
+        noun->add("pressureSwitchDef", "nullable", cPressureSwitchDef, 144);
 
-    auto CrystalDef = add_struct("crystalDef", 24);
-         CrystalDef->add("modifier", "key", 0);
-         CrystalDef->add("type", "enum", 4);
-         CrystalDef->add("rarity", "enum", 16);
-    registerNullableType("crystalDef");
-    noun->add("crystalDef", "nullable", CrystalDef, 148);
+        auto CrystalDef = add_struct("crystalDef", 24);
+             CrystalDef->add("modifier", "key", 0);
+             CrystalDef->add("type", "enum", 4);
+             CrystalDef->add("rarity", "enum", 16);
+        registerNullableType("crystalDef");
+        noun->add("crystalDef", "nullable", CrystalDef, 148);
 
-    noun->add("assetId", "uint64_t", 152);
-    noun->add("npcClassData", "asset", 160);
-    noun->add("playerClassData", "asset", 164);
-    noun->add("characterAnimationData", "asset", 168);
+        noun->add("assetId", "uint64_t", 152);
+        noun->add("npcClassData", "asset", 160);
+        noun->add("playerClassData", "asset", 164);
+        noun->add("characterAnimationData", "asset", 168);
 
-    auto cThumbnailCaptureParameters = add_struct("creatureThumbnailData", 108);
-         cThumbnailCaptureParameters->add("fovY", "float", 0);
-         cThumbnailCaptureParameters->add("nearPlane", "float", 4);
-         cThumbnailCaptureParameters->add("farPlane", "float", 8);
-         cThumbnailCaptureParameters->add("cameraPosition", "cSPVector3", 12);
-         cThumbnailCaptureParameters->add("cameraScale", "float", 24);
-         cThumbnailCaptureParameters->add("cameraRotation_0", "cSPVector3", 28);
-         cThumbnailCaptureParameters->add("cameraRotation_1", "cSPVector3", 40);
-         cThumbnailCaptureParameters->add("cameraRotation_2", "cSPVector3", 52);
-         cThumbnailCaptureParameters->add("mouseCameraDataValid", "bool", 64);
-         cThumbnailCaptureParameters->add("mouseCameraOffset", "cSPVector3", 68);
-         cThumbnailCaptureParameters->add("mouseCameraSubjectPosition", "cSPVector3", 80);
-         cThumbnailCaptureParameters->add("mouseCameraTheta", "float", 92);
-         cThumbnailCaptureParameters->add("mouseCameraPhi", "float", 96);
-         cThumbnailCaptureParameters->add("mouseCameraRoll", "float", 100);
-         cThumbnailCaptureParameters->add("poseAnimID", "uint32_t", 104);
-    registerNullableType("creatureThumbnailData");
-    noun->add("creatureThumbnailData", "nullable", cThumbnailCaptureParameters, 172);
+        auto cThumbnailCaptureParameters = add_struct("creatureThumbnailData", 108);
+             cThumbnailCaptureParameters->add("fovY", "float", 0);
+             cThumbnailCaptureParameters->add("nearPlane", "float", 4);
+             cThumbnailCaptureParameters->add("farPlane", "float", 8);
+             cThumbnailCaptureParameters->add("cameraPosition", "cSPVector3", 12);
+             cThumbnailCaptureParameters->add("cameraScale", "float", 24);
+             cThumbnailCaptureParameters->add("cameraRotation_0", "cSPVector3", 28);
+             cThumbnailCaptureParameters->add("cameraRotation_1", "cSPVector3", 40);
+             cThumbnailCaptureParameters->add("cameraRotation_2", "cSPVector3", 52);
+             cThumbnailCaptureParameters->add("mouseCameraDataValid", "bool", 64);
+             cThumbnailCaptureParameters->add("mouseCameraOffset", "cSPVector3", 68);
+             cThumbnailCaptureParameters->add("mouseCameraSubjectPosition", "cSPVector3", 80);
+             cThumbnailCaptureParameters->add("mouseCameraTheta", "float", 92);
+             cThumbnailCaptureParameters->add("mouseCameraPhi", "float", 96);
+             cThumbnailCaptureParameters->add("mouseCameraRoll", "float", 100);
+             cThumbnailCaptureParameters->add("poseAnimID", "uint32_t", 104);
+        registerNullableType("creatureThumbnailData");
+        noun->add("creatureThumbnailData", "nullable", cThumbnailCaptureParameters, 172);
 
-    noun->addArray("eliteAssetIds", "uint64_t", 172);
-    noun->add("physicsType", "enum", 184);
-    noun->add("density", "float", 188);
-    noun->add("physicsKey", "key", 204);
-    noun->add("affectsNavMesh", "bool", 208);
-    noun->add("dynamicWall", "bool", 209);
-    noun->add("hasLocomotion", "bool", 219);
-    noun->add("locomotionType", "enum", 220);
-    noun->add("hasNetworkComponent", "bool", 216);
-    noun->add("hasCombatantComponent", "bool", 218);
-    noun->add("aiDefinition", "asset", 212);
-    noun->add("hasCameraComponent", "bool", 212);
-    noun->add("spawnTeamId", "enum", 224);
-    noun->add("isIslandMarker", "bool", 228);
-    noun->add("activateFnNamespace", "char*", 232);
-    noun->add("tickFnNamespace", "char*", 236);
-    noun->add("deactivateFnNamespace", "char*", 240);
-    noun->add("startFnNamespace", "char*", 244);
-    noun->add("endFnNamespace", "char*", 248);
+        noun->addArray("eliteAssetIds", "uint64_t", 172);
+        noun->add("physicsType", "enum", 184);
+        noun->add("density", "float", 188);
+        noun->add("physicsKey", "key", 204);
+        noun->add("affectsNavMesh", "bool", 208);
+        noun->add("dynamicWall", "bool", 209);
+        noun->add("hasLocomotion", "bool", 219);
+        noun->add("locomotionType", "enum", 220);
+        noun->add("hasNetworkComponent", "bool", 216);
+        noun->add("hasCombatantComponent", "bool", 218);
+        noun->add("aiDefinition", "asset", 212);
+        noun->add("hasCameraComponent", "bool", 212);
+        noun->add("spawnTeamId", "enum", 224);
+        noun->add("isIslandMarker", "bool", 228);
+        noun->add("activateFnNamespace", "char*", 232);
+        noun->add("tickFnNamespace", "char*", 236);
+        noun->add("deactivateFnNamespace", "char*", 240);
+        noun->add("startFnNamespace", "char*", 244);
+        noun->add("endFnNamespace", "char*", 248);
 
     auto TriggerVolumeEvents = add_struct("events", 32);
-    TriggerVolumeEvents->add("onEnterEvent", "key", 12);
-    TriggerVolumeEvents->add("onExitEvent", "key", 28);
+         TriggerVolumeEvents->add("onEnterEvent", "key", 12);
+         TriggerVolumeEvents->add("onExitEvent", "key", 28);
     registerNullableType("events");
 
     auto TriggerVolumeDef = add_struct("triggerVolume", 136);
@@ -267,7 +283,7 @@ void Catalog::initialize() {
         auto AudioTriggerDef = add_struct("audioTrigger", 32);
              AudioTriggerDef->add("type", "enum", 0);
              AudioTriggerDef->add("sound", "key", 16);
-             AudioTriggerDef->add("is3D", "bool", 20);
+             AudioTriggerDef->add("bIs3D", "bool", 20);
              AudioTriggerDef->add("retrigger", "bool", 21);
              AudioTriggerDef->add("hardStop", "bool", 22);
              AudioTriggerDef->add("hardStop", "bool", 22);
@@ -399,7 +415,7 @@ void Catalog::initialize() {
          PlayerClass->add("creatureClass", "enum", 72);
          PlayerClass->add("primaryAttribute", "enum", 76);
          PlayerClass->add("unlockLevel", "uint32_t", 80);
-         PlayerClass->add("basicAbility", "uint32_t", 96);
+         PlayerClass->add("basicAbility", "key", 96);
          PlayerClass->add("specialAbility1", "key", 112);
          PlayerClass->add("specialAbility2", "key", 128);
          PlayerClass->add("specialAbility3", "key", 144);
@@ -1080,7 +1096,7 @@ void Catalog::initialize() {
 		           cSplineCameraNodeBaseData->add("message", "char", 53);
               //addType("struct:cSplineCameraNodeBaseData", DataType::STRUCT, 128, "cSplineCameraNodeBaseData");
               //cSplineCameraData->add("node", "struct:SharedComponentData", 0);
-              cSplineCameraData->add(cSplineCameraNodeBaseData, 0);
+              cSplineCameraData->add("node", cSplineCameraNodeBaseData, 0);
               cSplineCameraData->add("duration", "float", 128);
          registerNullableType("cSplineCameraData");
          cLabsMarker->add("splineCameraData", "nullable", cSplineCameraData, 148);
@@ -1165,12 +1181,6 @@ void Catalog::initialize() {
          CharacterType->add("UIColor", "uint32_t", 120);
 
     //   Condition
-    auto cAssetProperty = add_struct("cAssetProperty", 188);
-	     cAssetProperty->add("name", "char", 4);
-	     cAssetProperty->add("value", "char", 88);
-	     cAssetProperty->add("type", "guid", 84);
-    auto cAssetPropertyList = add_struct("cAssetPropertyList", 8);
-         cAssetPropertyList->addStructArray("mpAssetProperties", cAssetProperty, 0);
     auto Condition = add_struct("Condition");
          Condition->add("condition", "key", 12);
          Condition->add("conditionProps", cAssetPropertyList, 16);

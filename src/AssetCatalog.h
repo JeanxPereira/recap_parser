@@ -1,5 +1,4 @@
 ﻿#pragma once
-
 #include "exporter.h"
 #include <string>
 #include <stack>
@@ -8,20 +7,17 @@
 #include <memory>
 #include <unordered_map>
 #include <functional>
-#include <fstream>
-
+#include <cstring>
+#include <stdexcept>
 #ifndef _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
 #define _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
 #endif
-
 #ifndef _SILENCE_ALL_MS_EXT_DEPRECATION_WARNING
 #define _SILENCE_ALL_MS_EXT_DEPRECATION_WARNING
 #endif
-
 #ifndef _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING
 #define _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING
 #endif
-
 #if ((defined(_MSVC_LANG) && _MSVC_LANG >= 201703L) || __cplusplus >= 201703L)
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -29,11 +25,9 @@ namespace fs = std::filesystem;
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 #endif
-
 #include <pugixml.hpp>
 #include <fmt/core.h>
 #include <fmt/format.h>
-
 enum class DataType {
     BOOL,
     INT,
@@ -47,6 +41,7 @@ enum class DataType {
     GUID,
     VECTOR2,
     VECTOR3,
+    VECTOR4,
     QUATERNION,
     LOCALIZEDASSETSTRING,
     CHAR,
@@ -59,14 +54,12 @@ enum class DataType {
     ENUM,
     STRUCT
 };
-
 struct TypeDefinition {
     std::string name;
     DataType type;
     size_t size;
     std::string targetType;
-
-    TypeDefinition(const std::string& name, DataType type, size_t size)
+        TypeDefinition(const std::string& name, DataType type, size_t size)
         : name(name), type(type), size(size), targetType("") {
     }
 
@@ -74,18 +67,18 @@ struct TypeDefinition {
         : name(name), type(type), size(size), targetType(targetType) {
     }
 };
-
 class OffsetManager {
 private:
+    const uint8_t* buffer;
+    size_t bufferSize;
     size_t primaryOffset = 0;
     size_t secondaryOffset = 0;
-    std::ifstream& fileStream;
     size_t displaySecondaryOffset = 0;
-
 public:
-    OffsetManager(std::ifstream& fs) : fileStream(fs) {}
-
-    void setPrimaryOffset(size_t offset) {
+    OffsetManager(const std::vector<uint8_t>& data)
+        : buffer(data.data()), bufferSize(data.size()) {
+    }
+        void setPrimaryOffset(size_t offset) {
         primaryOffset = offset;
     }
 
@@ -117,31 +110,32 @@ public:
         secondaryOffset += bytes;
     }
 
-    bool isValidOffset(size_t offset, size_t size) {
-        fileStream.seekg(0, std::ios::end);
-        size_t fileSize = fileStream.tellg();
-        return (offset + size <= fileSize);
+    size_t getFileSize() const {
+        return bufferSize;
+    }
+
+    bool isValidOffset(size_t offset, size_t size) const {
+        return (offset + size <= bufferSize);
     }
 
     template<typename T>
     T readPrimary() {
         if (!isValidOffset(primaryOffset, sizeof(T))) {
-            throw std::runtime_error("Attempted to read beyond end of file at offset " +
-                std::to_string(primaryOffset));
+            throw std::runtime_error("Attempted to read beyond buffer size at offset " + std::to_string(primaryOffset));
         }
-
         T value;
-        fileStream.seekg(primaryOffset);
-        fileStream.read(reinterpret_cast<char*>(&value), sizeof(T));
+        std::memcpy(&value, buffer + primaryOffset, sizeof(T));
         primaryOffset += sizeof(T);
         return value;
     }
 
     template<typename T>
     T readSecondary() {
+        if (!isValidOffset(secondaryOffset, sizeof(T))) {
+            throw std::runtime_error("Attempted to read beyond buffer size at offset " + std::to_string(secondaryOffset));
+        }
         T value;
-        fileStream.seekg(secondaryOffset);
-        fileStream.read(reinterpret_cast<char*>(&value), sizeof(T));
+        std::memcpy(&value, buffer + secondaryOffset, sizeof(T));
         secondaryOffset += sizeof(T);
         return value;
     }
@@ -149,32 +143,31 @@ public:
     template<typename T>
     T readAt(size_t offset) {
         if (!isValidOffset(offset, sizeof(T))) {
-            throw std::runtime_error("Attempted to read beyond end of file at offset " +
-                std::to_string(offset));
+            throw std::runtime_error("Attempted to read beyond buffer size at offset " + std::to_string(offset));
         }
-
-        std::streampos currentPos = fileStream.tellg();
-
-        fileStream.seekg(offset);
         T value;
-        fileStream.read(reinterpret_cast<char*>(&value), sizeof(T));
-
-        fileStream.seekg(currentPos);
-
+        std::memcpy(&value, buffer + offset, sizeof(T));
         return value;
     }
 
     std::string readString(bool useSecondary = false) {
         size_t currentOffset = useSecondary ? secondaryOffset : primaryOffset;
-        fileStream.seekg(currentOffset);
 
-        std::string result;
-        char c;
-        while (fileStream.get(c) && c != '\0') {
-            result += c;
+        if (currentOffset >= bufferSize) {
+            return "";
         }
 
-        size_t newOffset = currentOffset + result.length() + 1;
+        std::string result;
+        size_t len = 0;
+        const char* start = reinterpret_cast<const char*>(buffer + currentOffset);
+
+        while ((currentOffset + len < bufferSize) && start[len] != '\0') {
+            len++;
+        }
+
+        result.assign(start, len);
+
+        size_t newOffset = currentOffset + len + 1;
         if (useSecondary) {
             secondaryOffset = newOffset;
         }
@@ -185,7 +178,6 @@ public:
         return result;
     }
 };
-
 struct StructMember {
     std::string name;
     std::string typeName;
@@ -194,9 +186,8 @@ struct StructMember {
     std::string elementType;
     bool hasCustomName;
     size_t countOffset;
-
-    StructMember(const std::string& name, const std::string& typeName, size_t offset,
-        bool useSecondaryOffset = false, bool hasCustomName = false, size_t countOffset = 0)
+        StructMember(const std::string& name, const std::string& typeName, size_t offset,
+            bool useSecondaryOffset = false, bool hasCustomName = false, size_t countOffset = 0)
         : name(name), typeName(typeName), offset(offset),
         useSecondaryOffset(useSecondaryOffset), elementType(""),
         hasCustomName(hasCustomName), countOffset(countOffset) {
@@ -210,19 +201,17 @@ struct StructMember {
         hasCustomName(hasCustomName), countOffset(countOffset) {
     }
 };
-
 class StructDefinition {
 private:
     std::string name;
     size_t fixedSize;
     std::vector<StructMember> members;
-
 public:
     StructDefinition(const std::string& name, size_t fixedSize = 0)
         : name(name), fixedSize(fixedSize) {
     }
 
-    const std::string& getName() const {
+        const std::string& getName() const {
         return name;
     }
 
@@ -275,31 +264,32 @@ public:
         return members;
     }
 };
-
 struct VersionedFileTypeInfo {
     std::string version;
     std::vector<std::string> structTypes;
     size_t secondaryOffsetStart;
 
-    VersionedFileTypeInfo(const std::string& version, const std::vector<std::string>& types, size_t offsetStart = 0)
+    VersionedFileTypeInfo(const std::string& version,
+        const std::vector<std::string>& types,
+        size_t offsetStart = 0)
         : version(version), structTypes(types), secondaryOffsetStart(offsetStart) {
     }
 };
-
 struct FileTypeInfo {
     std::vector<std::string> structTypes;
     size_t secondaryOffsetStart;
     std::vector<VersionedFileTypeInfo> versionedInfo;
+
+    FileTypeInfo() : secondaryOffsetStart(0) {}
 
     FileTypeInfo(const std::vector<std::string>& types, size_t offsetStart = 0)
         : structTypes(types), secondaryOffsetStart(offsetStart) {
     }
 
     FileTypeInfo(const std::vector<VersionedFileTypeInfo>& versions)
-        : versionedInfo(versions) {
+        : secondaryOffsetStart(0), versionedInfo(versions) {
     }
 };
-
 class Catalog {
 private:
     std::unordered_map<std::string, TypeDefinition> types;
@@ -307,11 +297,10 @@ private:
     std::unordered_map<std::string, FileTypeInfo> fileTypes;
     std::unordered_map<std::string, FileTypeInfo> exactFileNames;
     std::string currentGameVersion = "5.3.0.103";
-
 public:
     Catalog();
 
-    void setGameVersion(const std::string& version) {
+        void setGameVersion(const std::string& version) {
         currentGameVersion = version;
     }
 
@@ -491,15 +480,13 @@ public:
 
     void initialize();
 };
-
 class Parser {
 private:
     const Catalog& catalog;
+    const std::vector<uint8_t>& fileData;
     OffsetManager offsetManager;
-    std::ifstream fileStream;
     std::string filename;
-
-    size_t totalArraySize = 0;
+        size_t totalArraySize = 0;
 
     bool isInsideNullable = false;
     bool secOffsetStruct = false;
@@ -543,13 +530,12 @@ private:
     void parseStruct(const std::string& structName, int arrayIndex = -1);
     void parseMember(const StructMember& member, const std::shared_ptr<StructDefinition>& parentStruct, size_t arraySize = 0);
 public:
-    Parser(const Catalog& catalog, const std::string& filename, bool silentMode = true, bool debugMode = false, const std::string& exportFormat = "xml")
-        : catalog(catalog), offsetManager(fileStream), filename(filename),
+    Parser(const Catalog& catalog, const std::vector<uint8_t>& data, const std::string& virtualFilename, bool silentMode = true, bool debugMode = false, const std::string& exportFormat = "xml")
+        : catalog(catalog), fileData(data), offsetManager(data), filename(virtualFilename),
         silentMode(silentMode), debugMode(debugMode), exportMode(exportFormat != "none") {
-
-        if (exportFormat != "none") {
-            exporter = ExporterFactory::createExporter(exportFormat);
-        }
+            if (exportFormat != "none") {
+                exporter = ExporterFactory::createExporter(exportFormat);
+            }
     }
 
     bool parse();
